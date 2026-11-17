@@ -1,0 +1,161 @@
+import React, { useState } from 'react';
+import { Lock, Eye, EyeOff, ShieldCheck, AlertCircle, X } from 'lucide-react';
+
+interface ManicureLoginModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccessLogin: () => void;
+  onSignIn: (email: string, password: string) => Promise<{ error: any }>;
+}
+
+export const ManicureLoginModal: React.FC<ManicureLoginModalProps> = ({
+  isOpen,
+  onClose,
+  onSuccessLogin,
+  onSignIn,
+}) => {
+  const [emailOrUser, setEmailOrUser] = useState('contato@lumenails.com');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(true);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  if (!isOpen) return null;
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMessage('');
+    setLoading(true);
+
+    try {
+      const { error } = await onSignIn(emailOrUser, password);
+
+      if (error) {
+        setErrorMessage('E-mail ou senha incorretos. Verifique os dados digitados e tente novamente.');
+        setLoading(false);
+        return;
+      }
+
+      // Lembrar sessão no navegador (opcional, mantém a UX anterior)
+      if (rememberMe) {
+        localStorage.setItem('kethelin_manicure_auth', 'true');
+      } else {
+        sessionStorage.setItem('kethelin_manicure_auth', 'true');
+      }
+
+      onSuccessLogin();
+    } catch (err) {
+      setErrorMessage('Erro ao entrar. Tente novamente em alguns instantes.');
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/60 backdrop-blur-xs animate-in fade-in duration-200">
+      <div className="relative w-full max-w-md bg-white rounded-3xl p-6 sm:p-8 shadow-2xl border border-[#E3DFFD]/60 overflow-hidden">
+        {/* Decorative Top Glow */}
+        <div className="absolute top-0 left-0 right-0 h-2 bg-gradient-to-r from-[#8B5CF6] via-[#A78BFA] to-[#D97706]" />
+
+        {/* Close Button */}
+        <button
+          onClick={onClose}
+          className="absolute top-5 right-5 text-stone-400 hover:text-stone-700 p-1.5 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        {/* Header */}
+        <div className="text-center pb-5 border-b border-stone-100">
+          <div className="mx-auto w-14 h-14 rounded-2xl bg-[#F5F3FF] text-[#8B5CF6] flex items-center justify-center mb-3 shadow-xs border border-[#C4B5FD]/60">
+            <Lock className="w-7 h-7" />
+          </div>
+
+          <span className="text-[10px] uppercase font-bold tracking-widest text-[#7C3AED] bg-[#F5F3FF] px-2.5 py-0.5 rounded-full border border-[#E3DFFD]">
+            Acesso Restrito
+          </span>
+
+          <h2 className="text-2xl font-bold font-['Playfair_Display',serif] text-stone-900 mt-2">
+            Painel da Manicure
+          </h2>
+          <p className="text-xs text-stone-500 mt-1">
+            Digite seu e-mail profissional e senha para acessar a agenda, clientes e fluxo de caixa.
+          </p>
+        </div>
+
+        {/* Login Form */}
+        <form onSubmit={handleLogin} className="pt-5 space-y-4">
+          {errorMessage && (
+            <div className="p-3 rounded-xl bg-[#F5F3FF] border border-[#C4B5FD]/60 text-[#7C3AED] text-xs flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">
+              E-mail Profissional
+            </label>
+            <input
+              type="email"
+              value={emailOrUser}
+              onChange={(e) => setEmailOrUser(e.target.value)}
+              className="w-full px-4 py-2.5 rounded-xl border border-stone-200 text-sm focus:border-[#8B5CF6] focus:ring-1 focus:ring-[#8B5CF6] outline-hidden"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-stone-700 mb-1">
+              Senha de Acesso
+            </label>
+
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2.5 pr-11 rounded-xl border border-stone-200 text-sm focus:border-[#8B5CF6] focus:ring-1 focus:ring-[#8B5CF6] outline-hidden"
+                required
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600 p-1 cursor-pointer"
+                title={showPassword ? 'Ocultar senha' : 'Ver senha digitada'}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between text-xs pt-1">
+            <label className="flex items-center gap-2 text-stone-600 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="rounded text-[#8B5CF6] focus:ring-[#8B5CF6]"
+              />
+              <span>Lembrar neste navegador</span>
+            </label>
+            <span className="text-[11px] text-stone-400">Lume Nails</span>
+          </div>
+
+          <div className="pt-2">
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#7C3AED] hover:from-[#7C3AED] hover:to-[#6D28D9] text-white font-bold text-sm shadow-md shadow-[#8b5cf6]/30 hover:shadow-lg transition-all active:scale-98 cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              <ShieldCheck className="w-4 h-4" />
+              <span>{loading ? 'Verificando...' : 'Entrar no Painel da Manicure'}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
