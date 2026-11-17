@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   AlertTriangle,
@@ -174,11 +174,11 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
   const [paymentsSalon, setPaymentsSalon] = useState<AdminSalon | null>(null);
 
   const [settings, setSettings] = useState<SaasSettings>(EMPTY_SAAS_SETTINGS);
-  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [showToken, setShowToken] = useState(false);
+  const settingsRequested = useRef(false);
 
   const loadSalons = useCallback(async () => {
     setLoading(true);
@@ -193,25 +193,31 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
     void loadSalons();
   }, [loadSalons]);
 
-  useEffect(() => {
-    if (section !== 'settings' || settingsLoaded || settingsLoading) return;
-
-    let cancelled = false;
+  const loadSettings = useCallback(async () => {
     setSettingsLoading(true);
     setSettingsError(null);
 
-    void fetchSaasSettings().then((result) => {
-      if (cancelled) return;
+    try {
+      const result = await fetchSaasSettings();
       if (result.settings) setSettings(result.settings);
       setSettingsError(result.error);
-      setSettingsLoaded(result.error === null);
+    } catch (error) {
+      setSettingsError(
+        error instanceof Error ? error.message : 'Erro inesperado ao carregar as configurações.'
+      );
+    } finally {
       setSettingsLoading(false);
-    });
+    }
+  }, []);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [section, settingsLoaded, settingsLoading]);
+  useEffect(() => {
+    // Carrega uma única vez ao abrir a aba. Não depende de settingsLoading:
+    // antes, o próprio setSettingsLoading(true) cancelava o efeito e os
+    // skeletons ficavam na tela indefinidamente.
+    if (section !== 'settings' || settingsRequested.current) return;
+    settingsRequested.current = true;
+    void loadSettings();
+  }, [section, loadSettings]);
 
   const stats = useMemo(() => {
     const active = salons.filter((salon) => salon.status === 'ativo');
@@ -376,7 +382,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
     setSettingsSaving(false);
 
     if (error) {
-      setSettingsError(error);
+      setFeedback({ kind: 'error', message: `Não foi possível salvar: ${error}` });
       return;
     }
 
@@ -954,13 +960,21 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
               </div>
 
               {settingsError && (
-                <div className="mt-6 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <div className="mt-6 flex flex-wrap items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                  <span>
+                  <span className="min-w-0 flex-1">
                     Não foi possível carregar as configurações: {settingsError}. Confirme se a
                     migração <code className="font-mono">20261118_admin_enterprise.sql</code> foi
                     aplicada.
                   </span>
+                  <button
+                    type="button"
+                    onClick={() => void loadSettings()}
+                    disabled={settingsLoading}
+                    className="text-xs font-semibold text-amber-900 underline underline-offset-2 hover:text-amber-950 disabled:opacity-60"
+                  >
+                    Tentar novamente
+                  </button>
                 </div>
               )}
 
@@ -974,105 +988,105 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
                 </div>
 
                 <form onSubmit={(event) => void handleSaveSettings(event)} className="px-5 py-5">
-                  {settingsLoading ? (
-                    <div className="space-y-4">
-                      {[0, 1, 2, 3].map((index) => (
-                        <div key={index} className="h-14 animate-pulse rounded-xl bg-zinc-100" />
-                      ))}
-                    </div>
-                  ) : (
-                    <>
-                      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                        {PLAN_ORDER.map((plan) => {
-                          const field =
-                            plan === 'basico'
-                              ? 'checkoutBasico'
-                              : plan === 'pro'
-                                ? 'checkoutPro'
-                                : 'checkoutPremium';
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                    {PLAN_ORDER.map((plan) => {
+                      const field =
+                        plan === 'basico'
+                          ? 'checkoutBasico'
+                          : plan === 'pro'
+                            ? 'checkoutPro'
+                            : 'checkoutPremium';
 
-                          return (
-                            <div key={plan} className="space-y-1.5">
-                              <Label htmlFor={`checkout-${plan}`} className="text-xs font-semibold text-zinc-700">
-                                Link de checkout · {PLAN_LABELS[plan]}
-                              </Label>
-                              <Input
-                                id={`checkout-${plan}`}
-                                type="url"
-                                inputMode="url"
-                                placeholder="https://pay.hotmart.com/..."
-                                value={settings[field]}
-                                onChange={(event) => updateSettings(field, event.target.value)}
-                                className="h-9 rounded-xl border-zinc-300 bg-white text-sm"
-                              />
-                              <p className="text-[11px] text-zinc-500">
-                                Plano de {formatBRL(PLAN_PRICES[plan])}/mês.
-                              </p>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <div className="mt-6 border-t border-zinc-100 pt-5">
-                        <div className="max-w-xl space-y-1.5">
-                          <Label htmlFor="hotmart-hottok" className="text-xs font-semibold text-zinc-700">
-                            Token do Webhook (HOTTOK)
+                      return (
+                        <div key={plan} className="space-y-2">
+                          <Label
+                            htmlFor={`checkout-${plan}`}
+                            className="text-xs font-semibold text-zinc-800"
+                          >
+                            Link de Checkout - {PLAN_LABELS[plan]}
                           </Label>
-                          <div className="relative">
-                            <Input
-                              id="hotmart-hottok"
-                              type={showToken ? 'text' : 'password'}
-                              autoComplete="off"
-                              spellCheck={false}
-                              placeholder="HOTTOK enviado pela Hotmart"
-                              value={settings.hotmartHottok}
-                              onChange={(event) => updateSettings('hotmartHottok', event.target.value)}
-                              className="h-9 rounded-xl border-zinc-300 bg-white pr-10 font-mono text-sm"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowToken((prev) => !prev)}
-                              aria-label={showToken ? 'Ocultar token' : 'Mostrar token'}
-                              className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800"
-                            >
-                              {showToken ? (
-                                <EyeOff className="h-4 w-4" />
-                              ) : (
-                                <Eye className="h-4 w-4" />
-                              )}
-                            </button>
-                          </div>
-                          <p className="text-[11px] leading-relaxed text-zinc-500">
-                            O webhook valida o header{' '}
-                            <code className="font-mono">x-hotmart-hottok</code> contra este valor.
-                            Se estiver vazio, a Edge Function usa o secret{' '}
-                            <code className="font-mono">HOTMART_HOTTOK</code>. Visível apenas para
-                            superadmins.
+                          <Input
+                            id={`checkout-${plan}`}
+                            type="url"
+                            inputMode="url"
+                            placeholder="https://pay.hotmart.com/..."
+                            value={settings[field]}
+                            onChange={(event) => updateSettings(field, event.target.value)}
+                            disabled={settingsLoading}
+                            className="h-10 rounded-xl border-zinc-300 bg-white text-sm text-zinc-900 placeholder:text-zinc-500"
+                          />
+                          <p className="text-[11px] text-zinc-500">
+                            Plano de {formatBRL(PLAN_PRICES[plan])}/mês.
                           </p>
                         </div>
-                      </div>
+                      );
+                    })}
+                  </div>
 
-                      <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-100 pt-5">
-                        <p className="text-[11px] text-zinc-500">
-                          {settings.updatedAt
-                            ? `Última atualização: ${new Date(settings.updatedAt).toLocaleString('pt-BR')}`
-                            : 'Nenhuma configuração salva até agora.'}
-                        </p>
-                        <Button
-                          type="submit"
-                          disabled={settingsSaving}
-                          className="h-9 rounded-xl bg-purple-600 px-4 text-sm font-semibold text-white hover:bg-purple-700"
+                  <div className="mt-6 border-t border-zinc-100 pt-5">
+                    <div className="max-w-xl space-y-2">
+                      <Label
+                        htmlFor="hotmart-hottok"
+                        className="text-xs font-semibold text-zinc-800"
+                      >
+                        HOTTOK da Hotmart
+                      </Label>
+                      <div className="relative">
+                        <Input
+                          id="hotmart-hottok"
+                          type={showToken ? 'text' : 'password'}
+                          autoComplete="off"
+                          spellCheck={false}
+                          placeholder="Cole aqui o HOTTOK da Hotmart"
+                          value={settings.hotmartHottok}
+                          onChange={(event) => updateSettings('hotmartHottok', event.target.value)}
+                          disabled={settingsLoading}
+                          className="h-10 rounded-xl border-zinc-300 bg-white pr-11 font-mono text-sm text-zinc-900 placeholder:font-sans placeholder:text-zinc-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowToken((prev) => !prev)}
+                          aria-label={showToken ? 'Ocultar token' : 'Mostrar token'}
+                          className="absolute top-1/2 right-2 -translate-y-1/2 rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800"
                         >
-                          {settingsSaving ? (
-                            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                          {showToken ? (
+                            <EyeOff className="h-4 w-4" />
                           ) : (
-                            <Check className="mr-1.5 h-4 w-4" />
+                            <Eye className="h-4 w-4" />
                           )}
-                          Salvar configurações
-                        </Button>
+                        </button>
                       </div>
-                    </>
-                  )}
+                      <p className="text-[11px] leading-relaxed text-zinc-500">
+                        O webhook valida o header{' '}
+                        <code className="font-mono">x-hotmart-hottok</code> contra este valor.
+                        Se estiver vazio, a Edge Function usa o secret{' '}
+                        <code className="font-mono">HOTMART_HOTTOK</code>. Visível apenas para
+                        superadmins.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex flex-col gap-3 border-t border-zinc-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-[11px] text-zinc-500">
+                      {settingsLoading
+                        ? 'Carregando configurações...'
+                        : settings.updatedAt
+                          ? `Última atualização: ${new Date(settings.updatedAt).toLocaleString('pt-BR')}`
+                          : 'Nenhuma configuração salva até agora.'}
+                    </p>
+                    <Button
+                      type="submit"
+                      disabled={settingsSaving || settingsLoading}
+                      className="h-10 w-full rounded-xl bg-purple-600 px-5 text-sm font-semibold text-white shadow-sm shadow-purple-600/25 hover:bg-purple-700 sm:w-auto"
+                    >
+                      {settingsSaving ? (
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Check className="mr-1.5 h-4 w-4" />
+                      )}
+                      Salvar configurações
+                    </Button>
+                  </div>
                 </form>
               </Card>
             </section>
