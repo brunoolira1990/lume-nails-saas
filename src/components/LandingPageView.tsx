@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   ArrowRight,
@@ -30,6 +30,7 @@ import {
   AccordionTrigger,
 } from './ui/accordion';
 import { cn } from '@/lib/utils';
+import { fetchPublicCheckoutLinks, type CheckoutLinks } from '@/lib/saasSettings';
 import { STUDIO_INFO } from '../data/initialData';
 import type { ServiceItem } from '../types';
 
@@ -187,12 +188,84 @@ const SIDEBAR_ITEMS = [
   { label: 'Portal', icon: Smartphone, active: false },
 ];
 
+interface CheckoutButtonProps {
+  href: string;
+  variant?: React.ComponentProps<typeof Button>['variant'];
+  size?: React.ComponentProps<typeof Button>['size'];
+  className?: string;
+  children: React.ReactNode;
+  onMissingLink: () => void;
+}
+
+/**
+ * Botão de assinatura: abre o checkout da Hotmart em nova aba quando o link
+ * está configurado em `saas_settings`; sem link, preserva o fluxo anterior.
+ */
+const CheckoutButton: React.FC<CheckoutButtonProps> = ({
+  href,
+  variant = 'default',
+  size,
+  className,
+  children,
+  onMissingLink,
+}) => {
+  if (!href) {
+    return (
+      <Button variant={variant} size={size} className={className} onClick={onMissingLink}>
+        {children}
+      </Button>
+    );
+  }
+
+  return (
+    <Button asChild variant={variant} size={size} className={className}>
+      <a href={href} target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    </Button>
+  );
+};
+
 export const LandingPageView: React.FC<LandingPageViewProps> = ({
   onGoToBooking,
   onGoToClientPortal,
   onGoToManicurePanel,
   isManicureLoggedIn = false,
 }) => {
+  const [checkoutLinks, setCheckoutLinks] = useState<CheckoutLinks | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    fetchPublicCheckoutLinks()
+      .then((result) => {
+        if (!active) return;
+        if (result.links) {
+          setCheckoutLinks(result.links);
+        } else if (result.error) {
+          console.warn('[Landing] Não foi possível carregar os links de checkout:', result.error);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        console.warn('[Landing] Falha ao carregar os links de checkout:', error);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const checkoutUrlFor = (planId: string): string => {
+    if (!checkoutLinks) return '';
+    if (planId === 'basico') return checkoutLinks.basico;
+    if (planId === 'pro') return checkoutLinks.pro;
+    if (planId === 'premium') return checkoutLinks.premium;
+    return '';
+  };
+
+  const proCheckoutUrl = checkoutUrlFor('pro');
+
   const whatsappUrl = `https://wa.me/${STUDIO_INFO.phoneRaw}?text=${encodeURIComponent(
     'Olá! Gostaria de saber mais sobre o Lume Nails para o meu estúdio de beleza.'
   )}`;
@@ -237,13 +310,14 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
               <Lock className="mr-1.5 h-3.5 w-3.5 text-purple-600" />
               {isManicureLoggedIn ? 'Painel' : 'Entrar'}
             </Button>
-            <Button
+            <CheckoutButton
+              href={proCheckoutUrl}
               className="h-9 rounded-xl bg-gradient-to-r from-purple-600 to-purple-700 px-4 text-sm font-semibold shadow-sm shadow-purple-600/20 hover:from-purple-700 hover:to-purple-800"
-              onClick={onGoToManicurePanel}
+              onMissingLink={onGoToManicurePanel}
             >
               Começar Grátis
               <ArrowRight className="ml-1 h-3.5 w-3.5" />
-            </Button>
+            </CheckoutButton>
           </div>
         </div>
       </header>
@@ -287,14 +361,15 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
             </p>
 
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row lg:justify-start">
-              <Button
+              <CheckoutButton
+                href={proCheckoutUrl}
                 size="lg"
                 className="h-12 w-full rounded-xl bg-gradient-to-r from-purple-600 to-purple-700 px-6 text-base font-semibold shadow-lg shadow-purple-600/20 hover:from-purple-700 hover:to-purple-800 sm:w-auto"
-                onClick={onGoToManicurePanel}
+                onMissingLink={onGoToManicurePanel}
               >
                 Começar Grátis
                 <ArrowRight className="ml-1 h-4 w-4" />
-              </Button>
+              </CheckoutButton>
               <Button
                 variant="outline"
                 size="lg"
@@ -629,7 +704,8 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
                 </div>
 
                 <div className="mt-auto pt-8">
-                  <Button
+                  <CheckoutButton
+                    href={checkoutUrlFor(plan.id)}
                     variant={plan.highlighted ? 'default' : 'outline'}
                     className={cn(
                       'h-11 w-full rounded-xl text-sm font-semibold',
@@ -637,11 +713,11 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
                         ? 'bg-gradient-to-r from-purple-600 to-purple-700 shadow-md shadow-purple-600/20 hover:from-purple-700 hover:to-purple-800'
                         : 'border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50'
                     )}
-                    onClick={onGoToManicurePanel}
+                    onMissingLink={onGoToManicurePanel}
                   >
                     {plan.cta}
                     <ArrowRight className="ml-1 h-4 w-4" />
-                  </Button>
+                  </CheckoutButton>
                 </div>
               </Card>
             ))}
@@ -733,14 +809,15 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
               pronto para atender melhor.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-              <Button
+              <CheckoutButton
+                href={proCheckoutUrl}
                 size="lg"
                 className="h-12 w-full rounded-xl bg-white px-6 text-base font-semibold text-purple-900 shadow-lg hover:bg-zinc-100 sm:w-auto"
-                onClick={onGoToManicurePanel}
+                onMissingLink={onGoToManicurePanel}
               >
                 Começar Grátis
                 <ArrowRight className="ml-1 h-4 w-4" />
-              </Button>
+              </CheckoutButton>
               <Button
                 variant="outline"
                 size="lg"

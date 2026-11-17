@@ -13,6 +13,23 @@ export interface SaasSettingsResult {
   error: string | null;
 }
 
+export interface CheckoutLinks {
+  basico: string;
+  pro: string;
+  premium: string;
+}
+
+export interface CheckoutLinksResult {
+  links: CheckoutLinks | null;
+  error: string | null;
+}
+
+export const EMPTY_CHECKOUT_LINKS: CheckoutLinks = {
+  basico: '',
+  pro: '',
+  premium: '',
+};
+
 const SETTINGS_ID = 'default';
 
 export const EMPTY_SAAS_SETTINGS: SaasSettings = {
@@ -79,4 +96,37 @@ export async function saveSaasSettings(
   );
 
   return { error: error?.message ?? null };
+}
+
+/**
+ * Lê os links de checkout públicos via RPC SECURITY DEFINER
+ * (`public_checkout_links`), já que a tabela `saas_settings` tem RLS
+ * restrita a superadmins. A função expõe apenas as 3 URLs, nunca o HOTTOK.
+ */
+export async function fetchPublicCheckoutLinks(): Promise<CheckoutLinksResult> {
+  if (!supabase) {
+    return { links: null, error: 'Supabase não está configurado neste ambiente.' };
+  }
+
+  const { data, error } = await supabase.rpc('public_checkout_links');
+
+  if (error) {
+    return { links: null, error: error.message };
+  }
+
+  const rows = Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
+  const row = rows[0];
+
+  if (!row) {
+    return { links: { ...EMPTY_CHECKOUT_LINKS }, error: null };
+  }
+
+  return {
+    links: {
+      basico: asText(row.basico).trim(),
+      pro: asText(row.pro).trim(),
+      premium: asText(row.premium).trim(),
+    },
+    error: null,
+  };
 }

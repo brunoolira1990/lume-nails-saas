@@ -281,6 +281,45 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return json({ error: 'method_not_allowed' }, 405);
   }
 
+  // Lê e registra o corpo bruto antes de validar o token. Assim o log mostra
+  // exatamente o que a Hotmart enviou, inclusive testes vazios ou malformados.
+  // Atenção: o payload pode conter dados pessoais do comprador (nome/e-mail).
+  let bodyText: string;
+  try {
+    bodyText = await req.text();
+  } catch (error) {
+    console.error('Falha ao ler o corpo da requisição:', error);
+    return json({ error: 'body_unreadable' }, 400);
+  }
+
+  console.log('Payload recebido:', bodyText);
+
+  if (!bodyText.trim()) {
+    console.warn('Payload vazio recebido da Hotmart.');
+    return json(
+      { error: 'empty_body', message: 'O corpo da requisição está vazio.' },
+      400
+    );
+  }
+
+  let payload: HotmartPayload;
+  try {
+    const parsed: unknown = JSON.parse(bodyText);
+
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      return json(
+        { error: 'invalid_payload', message: 'O corpo deve ser um objeto JSON.' },
+        400
+      );
+    }
+
+    payload = parsed as HotmartPayload;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'JSON inválido';
+    console.error(`JSON inválido no payload da Hotmart: ${message}`);
+    return json({ error: 'invalid_json', message }, 400);
+  }
+
   const supabaseUrl = Deno.env.get('SUPABASE_URL');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   if (!supabaseUrl || !serviceRoleKey) {
@@ -300,15 +339,20 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return json({ error: 'server_misconfigured' }, 500);
   }
 
-  if (!safeEqual(req.headers.get('x-hotmart-hottok') ?? '', expectedToken)) {
-    return json({ error: 'unauthorized' }, 401);
+  // O header é case-insensitive no Fetch API; enviamos um motivo distinto para
+  // separar "sem header" de "token errado" ao investigar testes da Hotmart.
+  const receivedToken = (req.headers.get('x-hotmart-hottok') ?? '').trim();
+  if (!receivedToken) {
+    console.warn('Requisição sem o header x-hotmart-hottok.');
+    return json(
+      { error: 'missing_hottok', message: 'Header x-hotmart-hottok ausente.' },
+      401
+    );
   }
 
-  let payload: HotmartPayload;
-  try {
-    payload = (await req.json()) as HotmartPayload;
-  } catch {
-    return json({ error: 'invalid_json' }, 400);
+  if (!safeEqual(receivedToken, expectedToken)) {
+    console.warn('HOTTOK recebido não confere com o token configurado.');
+    return json({ error: 'invalid_hottok', message: 'HOTTOK inválido.' }, 401);
   }
 
   const event = typeof payload.event === 'string' ? payload.event : '';
