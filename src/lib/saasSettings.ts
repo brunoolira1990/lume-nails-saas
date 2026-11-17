@@ -1,10 +1,15 @@
 import { supabase } from './supabase';
 
 export interface SaasSettings {
-  checkoutBasico: string;
-  checkoutPro: string;
-  checkoutPremium: string;
-  hotmartHottok: string;
+  /** IDs dos Payment Links recorrentes no Asaas (editáveis no Admin). */
+  linkBasicoId: string;
+  linkProId: string;
+  linkPremiumId: string;
+  /** URLs devolvidas pela API do Asaas (somente leitura). */
+  linkBasicoUrl: string;
+  linkProUrl: string;
+  linkPremiumUrl: string;
+  asaasWebhookToken: string;
   updatedAt?: string;
 }
 
@@ -24,19 +29,36 @@ export interface CheckoutLinksResult {
   error: string | null;
 }
 
-export const EMPTY_CHECKOUT_LINKS: CheckoutLinks = {
-  basico: '',
-  pro: '',
-  premium: '',
-};
+export type AsaasPlanId = 'basico' | 'pro' | 'premium';
+
+export interface AsaasGeneratedLink {
+  id: string;
+  url: string;
+  created: boolean;
+}
+
+export interface GenerateAsaasLinksResult {
+  links: Partial<Record<AsaasPlanId, AsaasGeneratedLink>>;
+  failures: { plan: string; message: string }[];
+  error: string | null;
+}
 
 const SETTINGS_ID = 'default';
 
 export const EMPTY_SAAS_SETTINGS: SaasSettings = {
-  checkoutBasico: '',
-  checkoutPro: '',
-  checkoutPremium: '',
-  hotmartHottok: '',
+  linkBasicoId: '',
+  linkProId: '',
+  linkPremiumId: '',
+  linkBasicoUrl: '',
+  linkProUrl: '',
+  linkPremiumUrl: '',
+  asaasWebhookToken: '',
+};
+
+export const EMPTY_CHECKOUT_LINKS: CheckoutLinks = {
+  basico: '',
+  pro: '',
+  premium: '',
 };
 
 function asText(value: unknown): string {
@@ -66,16 +88,23 @@ export async function fetchSaasSettings(): Promise<SaasSettingsResult> {
 
   return {
     settings: {
-      checkoutBasico: asText(row.hotmart_checkout_basico),
-      checkoutPro: asText(row.hotmart_checkout_pro),
-      checkoutPremium: asText(row.hotmart_checkout_premium),
-      hotmartHottok: asText(row.hotmart_hottok),
+      linkBasicoId: asText(row.asaas_link_basico_id),
+      linkProId: asText(row.asaas_link_pro_id),
+      linkPremiumId: asText(row.asaas_link_premium_id),
+      linkBasicoUrl: asText(row.asaas_link_basico_url),
+      linkProUrl: asText(row.asaas_link_pro_url),
+      linkPremiumUrl: asText(row.asaas_link_premium_url),
+      asaasWebhookToken: asText(row.asaas_webhook_token),
       updatedAt: typeof row.updated_at === 'string' ? row.updated_at : undefined,
     },
     error: null,
   };
 }
 
+/**
+ * Salva apenas os IDs e o token. As URLs são preenchidas pela Edge Function
+ * asaas-payment-links a partir da API do Asaas.
+ */
 export async function saveSaasSettings(
   settings: SaasSettings
 ): Promise<{ error: string | null }> {
@@ -86,10 +115,10 @@ export async function saveSaasSettings(
   const { error } = await supabase.from('saas_settings').upsert(
     {
       id: SETTINGS_ID,
-      hotmart_checkout_basico: settings.checkoutBasico.trim(),
-      hotmart_checkout_pro: settings.checkoutPro.trim(),
-      hotmart_checkout_premium: settings.checkoutPremium.trim(),
-      hotmart_hottok: settings.hotmartHottok.trim(),
+      asaas_link_basico_id: settings.linkBasicoId.trim(),
+      asaas_link_pro_id: settings.linkProId.trim(),
+      asaas_link_premium_id: settings.linkPremiumId.trim(),
+      asaas_webhook_token: settings.asaasWebhookToken.trim(),
       updated_at: new Date().toISOString(),
     },
     { onConflict: 'id' }
@@ -99,9 +128,48 @@ export async function saveSaasSettings(
 }
 
 /**
+ * Cria (action "create") ou apenas sincroniza URLs (action "sync") dos três
+ * Payment Links recorrentes no Asaas. A função usa a ASAAS_API_KEY do servidor
+ * e grava IDs/URLs em saas_settings.
+ */
+export async function generateAsaasLinks(
+  action: 'create' | 'sync' = 'create'
+): Promise<GenerateAsaasLinksResult> {
+  const empty: GenerateAsaasLinksResult = { links: {}, failures: [], error: null };
+
+  if (!supabase) {
+    return { ...empty, error: 'Supabase não está configurado neste ambiente.' };
+  }
+
+  const { data, error } = await supabase.functions.invoke('asaas-payment-links', {
+    body: { action },
+  });
+
+  if (error) {
+    return { ...empty, error: error.message };
+  }
+
+  const payload = (data ?? {}) as {
+    error?: unknown;
+    links?: Partial<Record<AsaasPlanId, AsaasGeneratedLink>>;
+    failures?: { plan: string; message: string }[];
+  };
+
+  if (typeof payload.error === 'string' && payload.error) {
+    return { ...empty, error: payload.error };
+  }
+
+  return {
+    links: payload.links ?? {},
+    failures: Array.isArray(payload.failures) ? payload.failures : [],
+    error: null,
+  };
+}
+
+/**
  * Lê os links de checkout públicos via RPC SECURITY DEFINER
  * (`public_checkout_links`), já que a tabela `saas_settings` tem RLS
- * restrita a superadmins. A função expõe apenas as 3 URLs, nunca o HOTTOK.
+ * restrita a superadmins. A função expõe apenas as 3 URLs, nunca o token.
  */
 export async function fetchPublicCheckoutLinks(): Promise<CheckoutLinksResult> {
   if (!supabase) {

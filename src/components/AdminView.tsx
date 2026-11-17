@@ -65,6 +65,7 @@ import {
 import {
   EMPTY_SAAS_SETTINGS,
   fetchSaasSettings,
+  generateAsaasLinks,
   saveSaasSettings,
   type SaasSettings,
 } from '../lib/saasSettings';
@@ -106,7 +107,7 @@ const NAV_ITEMS: Array<{
   {
     id: 'settings',
     label: 'Configurações',
-    description: 'Hotmart e webhook',
+    description: 'Asaas e webhook',
     icon: Settings,
   },
 ];
@@ -178,6 +179,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [showToken, setShowToken] = useState(false);
+  const [linksGenerating, setLinksGenerating] = useState<'create' | 'sync' | null>(null);
   const settingsRequested = useRef(false);
 
   const loadSalons = useCallback(async () => {
@@ -386,7 +388,66 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
       return;
     }
 
-    setFeedback({ kind: 'success', message: 'Configurações da Hotmart salvas com sucesso.' });
+    setFeedback({ kind: 'success', message: 'Configurações do Asaas salvas com sucesso.' });
+  };
+
+  const handleGenerateLinks = async (action: 'create' | 'sync') => {
+    setLinksGenerating(action);
+    setSettingsError(null);
+    setFeedback(null);
+
+    try {
+      const result = await generateAsaasLinks(action);
+
+      if (result.error) {
+        setFeedback({
+          kind: 'error',
+          message: `Falha ao ${action === 'create' ? 'gerar' : 'sincronizar'} os links: ${result.error}`,
+        });
+        return;
+      }
+
+      const refreshed = await fetchSaasSettings();
+      if (refreshed.settings) setSettings(refreshed.settings);
+
+      const inLinks = Object.values(result.links);
+      const created = inLinks.filter((link) => link?.created).length;
+      const synced = inLinks.length - created;
+
+      if (result.failures.length > 0) {
+        setFeedback({
+          kind: 'error',
+          message: `Links atualizados (${created} criados, ${synced} sincronizados), mas ${result.failures.length} plano(s) falharam: ${result.failures
+            .map((failure) => `${PLAN_LABELS[failure.plan as SalonPlan] ?? failure.plan}: ${failure.message}`)
+            .join(' | ')}`,
+        });
+        return;
+      }
+
+      if (inLinks.length === 0) {
+        setFeedback({
+          kind: 'error',
+          message:
+            'Nenhum link foi gerado. Confira se a ASAAS_API_KEY está configurada nos secrets da Edge Function.',
+        });
+        return;
+      }
+
+      setFeedback({
+        kind: 'success',
+        message:
+          action === 'create'
+            ? `${created} link(s) criado(s) e ${synced} sincronizado(s) no Asaas.`
+            : `${synced} link(s) sincronizado(s) com o Asaas.`,
+      });
+    } catch (error) {
+      setFeedback({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Erro inesperado ao falar com o Asaas.',
+      });
+    } finally {
+      setLinksGenerating(null);
+    }
   };
 
   const isBusy = acting !== null;
@@ -955,7 +1016,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
                   Configurações
                 </h1>
                 <p className="mt-1 text-sm text-zinc-600">
-                  Links de checkout da Hotmart e token do webhook de provisionamento.
+                  Payment Links do Asaas e token do webhook de provisionamento.
                 </p>
               </div>
 
@@ -963,9 +1024,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
                 <div className="mt-6 flex flex-wrap items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                   <span className="min-w-0 flex-1">
-                    Não foi possível carregar as configurações: {settingsError}. Confirme se a
-                    migração <code className="font-mono">20261118_admin_enterprise.sql</code> foi
-                    aplicada.
+                    Não foi possível carregar as configurações: {settingsError}. Confirme se as
+                    migrações <code className="font-mono">20261118_admin_enterprise.sql</code> e{' '}
+                    <code className="font-mono">20261120_asaas_integration.sql</code> foram
+                    aplicadas.
                   </span>
                   <button
                     type="button"
@@ -980,10 +1042,10 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
 
               <Card className="mt-6 gap-0 rounded-2xl border border-zinc-200 bg-white p-0 ring-0 shadow-sm">
                 <div className="border-b border-zinc-100 px-5 py-4">
-                  <h2 className="text-sm font-bold text-zinc-900">Checkout Hotmart</h2>
+                  <h2 className="text-sm font-bold text-zinc-900">Assinaturas no Asaas</h2>
                   <p className="mt-0.5 text-xs text-zinc-500">
-                    Cole o link de checkout de cada plano. A landing page usa esses links nos
-                    botões de assinatura.
+                    Gere os Payment Links recorrentes ou cole o ID de um link já existente. A
+                    landing page usa a URL devolvida pelo Asaas nos botões de assinatura.
                   </p>
                 </div>
 
@@ -992,32 +1054,53 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
                     {PLAN_ORDER.map((plan) => {
                       const field =
                         plan === 'basico'
-                          ? 'checkoutBasico'
+                          ? 'linkBasicoId'
                           : plan === 'pro'
-                            ? 'checkoutPro'
-                            : 'checkoutPremium';
+                            ? 'linkProId'
+                            : 'linkPremiumId';
+                      const urlField =
+                        plan === 'basico'
+                          ? 'linkBasicoUrl'
+                          : plan === 'pro'
+                            ? 'linkProUrl'
+                            : 'linkPremiumUrl';
+                      const checkoutUrl = settings[urlField];
 
                       return (
                         <div key={plan} className="space-y-2">
                           <Label
-                            htmlFor={`checkout-${plan}`}
+                            htmlFor={`asaas-link-${plan}`}
                             className="text-xs font-semibold text-zinc-800"
                           >
-                            Link de Checkout - {PLAN_LABELS[plan]}
+                            ID do Link de Pagamento - {PLAN_LABELS[plan]}
                           </Label>
                           <Input
-                            id={`checkout-${plan}`}
-                            type="url"
-                            inputMode="url"
-                            placeholder="https://pay.hotmart.com/..."
+                            id={`asaas-link-${plan}`}
+                            type="text"
+                            autoComplete="off"
+                            spellCheck={false}
+                            placeholder="ID do Payment Link no Asaas"
                             value={settings[field]}
                             onChange={(event) => updateSettings(field, event.target.value)}
-                            disabled={settingsLoading}
-                            className="h-10 rounded-xl border-zinc-300 bg-white text-sm text-zinc-900 placeholder:text-zinc-500"
+                            disabled={settingsLoading || linksGenerating !== null}
+                            className="h-10 rounded-xl border-zinc-300 bg-white font-mono text-sm text-zinc-900 placeholder:font-sans placeholder:text-zinc-500"
                           />
                           <p className="text-[11px] text-zinc-500">
                             Plano de {formatBRL(PLAN_PRICES[plan])}/mês.
                           </p>
+                          {checkoutUrl ? (
+                            <a
+                              href={checkoutUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block truncate text-[11px] font-medium text-purple-700 underline-offset-2 hover:underline"
+                              title={checkoutUrl}
+                            >
+                              Abrir link gerado
+                            </a>
+                          ) : (
+                            <p className="text-[11px] text-zinc-400">Nenhuma URL gerada ainda.</p>
+                          )}
                         </div>
                       );
                     })}
@@ -1026,21 +1109,23 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
                   <div className="mt-6 border-t border-zinc-100 pt-5">
                     <div className="max-w-xl space-y-2">
                       <Label
-                        htmlFor="hotmart-hottok"
+                        htmlFor="asaas-webhook-token"
                         className="text-xs font-semibold text-zinc-800"
                       >
-                        HOTTOK da Hotmart
+                        Token do Webhook (asaas-access-token)
                       </Label>
                       <div className="relative">
                         <Input
-                          id="hotmart-hottok"
+                          id="asaas-webhook-token"
                           type={showToken ? 'text' : 'password'}
                           autoComplete="off"
                           spellCheck={false}
-                          placeholder="Cole aqui o HOTTOK da Hotmart"
-                          value={settings.hotmartHottok}
-                          onChange={(event) => updateSettings('hotmartHottok', event.target.value)}
-                          disabled={settingsLoading}
+                          placeholder="Token configurado no painel do Asaas"
+                          value={settings.asaasWebhookToken}
+                          onChange={(event) =>
+                            updateSettings('asaasWebhookToken', event.target.value)
+                          }
+                          disabled={settingsLoading || linksGenerating !== null}
                           className="h-10 rounded-xl border-zinc-300 bg-white pr-11 font-mono text-sm text-zinc-900 placeholder:font-sans placeholder:text-zinc-500"
                         />
                         <button
@@ -1058,26 +1143,55 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
                       </div>
                       <p className="text-[11px] leading-relaxed text-zinc-500">
                         O webhook valida o header{' '}
-                        <code className="font-mono">x-hotmart-hottok</code> contra este valor.
+                        <code className="font-mono">asaas-access-token</code> contra este valor.
                         Se estiver vazio, a Edge Function usa o secret{' '}
-                        <code className="font-mono">HOTMART_HOTTOK</code>. Visível apenas para
+                        <code className="font-mono">ASAAS_WEBHOOK_TOKEN</code>. Visível apenas para
                         superadmins.
                       </p>
                     </div>
                   </div>
 
-                  <div className="mt-6 flex flex-col gap-3 border-t border-zinc-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-[11px] text-zinc-500">
-                      {settingsLoading
-                        ? 'Carregando configurações...'
-                        : settings.updatedAt
-                          ? `Última atualização: ${new Date(settings.updatedAt).toLocaleString('pt-BR')}`
-                          : 'Nenhuma configuração salva até agora.'}
-                    </p>
+                  <div className="mt-6 flex flex-col gap-3 border-t border-zinc-100 pt-5 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        type="button"
+                        onClick={() => void handleGenerateLinks('create')}
+                        disabled={settingsLoading || linksGenerating !== null}
+                        className="h-10 rounded-xl bg-purple-600 px-5 text-sm font-semibold text-white shadow-sm shadow-purple-600/25 hover:bg-purple-700"
+                      >
+                        {linksGenerating === 'create' ? (
+                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        ) : (
+                          <RefreshCw className="mr-1.5 h-4 w-4" />
+                        )}
+                        Gerar links no Asaas
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void handleGenerateLinks('sync')}
+                        disabled={settingsLoading || linksGenerating !== null}
+                        className="h-10 rounded-xl border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                      >
+                        {linksGenerating === 'sync' ? (
+                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        ) : (
+                          <RotateCcw className="mr-1.5 h-4 w-4" />
+                        )}
+                        Sincronizar
+                      </Button>
+                      <p className="text-[11px] text-zinc-500">
+                        {settingsLoading
+                          ? 'Carregando configurações...'
+                          : settings.updatedAt
+                            ? `Última atualização: ${new Date(settings.updatedAt).toLocaleString('pt-BR')}`
+                            : 'Nenhuma configuração salva até agora.'}
+                      </p>
+                    </div>
                     <Button
                       type="submit"
-                      disabled={settingsSaving || settingsLoading}
-                      className="h-10 w-full rounded-xl bg-purple-600 px-5 text-sm font-semibold text-white shadow-sm shadow-purple-600/25 hover:bg-purple-700 sm:w-auto"
+                      disabled={settingsSaving || settingsLoading || linksGenerating !== null}
+                      className="h-10 w-full rounded-xl bg-zinc-900 px-5 text-sm font-semibold text-white shadow-sm hover:bg-zinc-800 sm:w-auto"
                     >
                       {settingsSaving ? (
                         <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
@@ -1114,7 +1228,7 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
               Faturas de assinatura ainda não sincronizadas
             </p>
             <p className="mt-1 text-xs leading-relaxed text-zinc-500">
-              O banco atual não possui uma tabela de cobranças do SaaS. Quando a Hotmart for
+              O banco atual não possui uma tabela de cobranças do SaaS. Quando o Asaas for
               integrada por API, cada compra e renovação aparecerá aqui. A tabela{' '}
               <code className="font-mono">transacoes</code> existe, mas registra o caixa do salão —
               não as assinaturas do Lume Nails.

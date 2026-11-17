@@ -198,7 +198,7 @@ interface CheckoutButtonProps {
 }
 
 /**
- * Botão de assinatura: abre o checkout da Hotmart em nova aba quando o link
+ * Botão de assinatura: abre o checkout do Asaas em nova aba quando o link
  * está configurado em `saas_settings`; sem link, preserva o fluxo anterior.
  */
 const CheckoutButton: React.FC<CheckoutButtonProps> = ({
