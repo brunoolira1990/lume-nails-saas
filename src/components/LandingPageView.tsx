@@ -108,7 +108,7 @@ const PLANS: LandingPlan[] = [
       'Catálogo de serviços e preços',
       'Acesso pelo celular',
     ],
-    cta: 'Começar Grátis',
+    cta: 'Assinar Agora',
   },
   {
     id: 'pro',
@@ -315,7 +315,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
               className="h-9 rounded-xl bg-gradient-to-r from-purple-600 to-purple-700 px-4 text-sm font-semibold shadow-sm shadow-purple-600/20 hover:from-purple-700 hover:to-purple-800"
               onMissingLink={onGoToManicurePanel}
             >
-              Começar Grátis
+              Assinar Agora
               <ArrowRight className="ml-1 h-3.5 w-3.5" />
             </CheckoutButton>
           </div>
@@ -367,7 +367,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
                 className="h-12 w-full rounded-xl bg-gradient-to-r from-purple-600 to-purple-700 px-6 text-base font-semibold shadow-lg shadow-purple-600/20 hover:from-purple-700 hover:to-purple-800 sm:w-auto"
                 onMissingLink={onGoToManicurePanel}
               >
-                Começar Grátis
+                Assinar Agora
                 <ArrowRight className="ml-1 h-4 w-4" />
               </CheckoutButton>
               <Button
@@ -805,7 +805,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
               Pronto para deixar o seu estúdio no piloto automático?
             </h2>
             <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-purple-100">
-              Comece grátis e organize agenda, clientes e financeiro em um só lugar. Seu estúdio
+              Comece agora e organize agenda, clientes e financeiro em um só lugar. Seu estúdio
               pronto para atender melhor.
             </p>
             <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
@@ -815,7 +815,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
                 className="h-12 w-full rounded-xl bg-white px-6 text-base font-semibold text-purple-900 shadow-lg hover:bg-zinc-100 sm:w-auto"
                 onMissingLink={onGoToManicurePanel}
               >
-                Começar Grátis
+                Assinar Agora
                 <ArrowRight className="ml-1 h-4 w-4" />
               </CheckoutButton>
               <Button
