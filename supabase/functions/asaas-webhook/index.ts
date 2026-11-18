@@ -3,7 +3,8 @@
 // Responsabilidades:
 //   1. Autenticar a chamada pelo header `asaas-access-token` (painel de
 //      Configurações do SaaS ou secret ASAAS_WEBHOOK_TOKEN).
-//   2. Aceitar somente o evento PAYMENT_RECEIVED (pagamento confirmado).
+//   2. Aceitar PAYMENT_RECEIVED (pagamento confirmado) e PAYMENT_OVERDUE
+//      (pagamento atrasado → suspensão do salão).
 //   3. Buscar os dados do comprador na API do Asaas (o webhook traz apenas o
 //      ID do cliente, sem e-mail).
 //   4. Criar (ou reaproveitar) o usuário no Supabase Auth.
@@ -11,6 +12,8 @@
 //      Payment Link usado na compra.
 //   6. Enviar o e-mail para o comprador definir a senha (somente na criação;
 //      renovações não reenviam).
+//   7. No PAYMENT_RECEIVED, reativar o salão ('ativo'); no PAYMENT_OVERDUE,
+//      marcá-lo como 'inativo' (a RLS bloqueia o acesso de salões inativos).
 //
 // Secrets (npx supabase secrets set ...):
 //   ASAAS_API_KEY        — obrigatório; chave de API do Asaas.
@@ -27,6 +30,7 @@ import {
 } from 'npm:@supabase/supabase-js@2';
 
 const RECEIVED_EVENT = 'PAYMENT_RECEIVED';
+const OVERDUE_EVENT = 'PAYMENT_OVERDUE';
 const USERS_PAGE_SIZE = 1000;
 const MAX_PAGES = 10;
 const DEFAULT_API_BASE = 'https://api.asaas.com/v3';
@@ -301,6 +305,135 @@ function resolvePlan(payment: AsaasPayment, settings: SaasLinkSettings | null): 
   return 'pro';
 }
 
+function isMissingColumnError(error: { message?: string; code?: string } | null): boolean {
+  if (!error) return false;
+  const message = (error.message ?? '').toLowerCase();
+  return (
+    error.code === '42703' ||
+    error.code === 'PGRST204' ||
+    (message.includes('column') && message.includes('does not exist')) ||
+    (message.includes('could not find') && message.includes('column'))
+  );
+}
+
+async function findSalonId(
+  admin: SupabaseClient,
+  ownerId: string
+): Promise<string | null> {
+  const { data: profile, error: profileError } = await admin
+    .from('profiles')
+    .select('salon_id')
+    .eq('id', ownerId)
+    .maybeSingle();
+
+  if (profileError) {
+    console.warn(`Aviso: não foi possível ler profiles (${profileError.message}).`);
+  }
+
+  const profileSalonId = typeof profile?.salon_id === 'string' ? profile.salon_id.trim() : '';
+  if (profileSalonId) return profileSalonId;
+
+  // Fallback: o provisionamento grava o dono em owner_id ou proprietario_id.
+  for (const column of ['owner_id', 'proprietario_id'] as const) {
+    const { data, error } = await admin
+      .from('salons')
+      .select('id')
+      .eq(column, ownerId)
+      .limit(1)
+      .maybeSingle();
+
+    if (error && !isMissingColumnError(error)) {
+      throw new Error(`Falha ao localizar o salão do cliente: ${error.message}`);
+    }
+
+    const id = typeof data?.id === 'string' ? data.id.trim() : '';
+    if (id) return id;
+  }
+
+  return null;
+}
+
+/**
+ * Atualiza o status do salão em todas as colunas existentes
+ * (status_assinatura e/ou status), evitando divergência entre telas e RLS.
+ */
+async function setSalonStatus(
+  admin: SupabaseClient,
+  salonId: string,
+  status: 'ativo' | 'inativo'
+): Promise<string[]> {
+  const updated: string[] = [];
+  let lastError: { message?: string; code?: string } | null = null;
+
+  for (const column of ['status_assinatura', 'status'] as const) {
+    const { error } = await admin
+      .from('salons')
+      .update({ [column]: status })
+      .eq('id', salonId);
+
+    if (!error) {
+      updated.push(column);
+      continue;
+    }
+
+    lastError = error;
+    if (!isMissingColumnError(error)) {
+      throw new Error(`Falha ao atualizar o status do salão ${salonId}: ${error.message}`);
+    }
+  }
+
+  if (updated.length === 0) {
+    throw new Error(
+      `Nenhuma coluna de status encontrada em public.salons (${lastError?.message ?? 'sem detalhes'}).`
+    );
+  }
+
+  return updated;
+}
+
+async function handleOverdue(
+  admin: SupabaseClient,
+  payment: AsaasPayment
+): Promise<Response> {
+  const customerId = typeof payment.customer === 'string' ? payment.customer.trim() : '';
+  if (!customerId) {
+    console.warn('PAYMENT_OVERDUE sem payment.customer.');
+    return json({ received: true, ignored: true, reason: 'customer_missing' }, 200);
+  }
+
+  try {
+    const customer = await fetchCustomer(customerId);
+    const email = customer.email?.trim().toLowerCase() ?? '';
+    if (!email) {
+      return json({ received: true, ignored: true, reason: 'customer_email_missing' }, 200);
+    }
+
+    const user = await findUserByEmail(admin, email);
+    if (!user) {
+      return json({ received: true, ignored: true, reason: 'user_not_found' }, 200);
+    }
+
+    const salonId = await findSalonId(admin, user.id);
+    if (!salonId) {
+      return json({ received: true, ignored: true, reason: 'salon_not_found' }, 200);
+    }
+
+    const columns = await setSalonStatus(admin, salonId, 'inativo');
+    console.log(
+      `Asaas: salão "${salonId}" suspenso por PAYMENT_OVERDUE (${columns.join(', ')}).`
+    );
+
+    return json(
+      { received: true, event: OVERDUE_EVENT, salonId, status: 'inativo' },
+      200
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'erro desconhecido';
+    console.error(`Asaas PAYMENT_OVERDUE falhou: ${message}`);
+    return json({ error: 'processing_failed', message }, 500);
+  }
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204 });
@@ -383,6 +516,11 @@ Deno.serve(async (req: Request): Promise<Response> => {
   }
 
   const event = typeof payload.event === 'string' ? payload.event.toUpperCase() : '';
+
+  if (event === OVERDUE_EVENT) {
+    return handleOverdue(admin, payload.payment ?? {});
+  }
+
   if (event !== RECEIVED_EVENT) {
     // Demais eventos recebem 200 para o Asaas não reenviar.
     return json({ received: true, ignored: true, event }, 200);
@@ -421,6 +559,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     });
 
     await upsertProfile(admin, user.id, salon.salonId);
+
+    // Pagamento confirmado reativa o salão (inclusive após PAYMENT_OVERDUE).
+    const statusColumns = await setSalonStatus(admin, salon.salonId, 'ativo');
+    console.log(
+      `Asaas: salão "${salon.slug}" ativo (${statusColumns.join(', ')}).`
+    );
 
     if (!salon.created) {
       // Renovação ou reenvio: só insiste no e-mail se a senha ainda não existe.
