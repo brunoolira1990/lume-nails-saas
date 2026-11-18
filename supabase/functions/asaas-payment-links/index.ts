@@ -149,11 +149,12 @@ async function assertSuperadmin(
 
 function buildLinkPayload(plan: PlanConfig): Record<string, unknown> {
   return {
-    name: `Lume Nails — Plano ${plan.label}`,
+    name: `Plano ${plan.label} - Lume Nails`,
     description: `Assinatura mensal do Lume Nails, plano ${plan.label}.`,
     value: plan.price,
-    // Assinatura sempre no cartão de crédito.
-    billingType: 'CREDIT_CARD',
+    // Permite Pix, boleto e cartão; o boleto exige a janela de dias úteis.
+    billingType: 'UNDEFINED',
+    dueDateLimitDays: 10,
     chargeType: 'RECURRENT',
     subscriptionCycle: 'MONTHLY',
     externalReference: `lume-plano-${plan.id}`,
