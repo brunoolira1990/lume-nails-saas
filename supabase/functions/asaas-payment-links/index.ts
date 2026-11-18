@@ -152,9 +152,8 @@ function buildLinkPayload(plan: PlanConfig): Record<string, unknown> {
     name: `Lume Nails — Plano ${plan.label}`,
     description: `Assinatura mensal do Lume Nails, plano ${plan.label}.`,
     value: plan.price,
-    // Permite boleto: o Asaas exige a janela de dias úteis para vencimento.
-    billingType: 'UNDEFINED',
-    dueDateLimitDays: 10,
+    // Assinatura sempre no cartão de crédito.
+    billingType: 'CREDIT_CARD',
     chargeType: 'RECURRENT',
     subscriptionCycle: 'MONTHLY',
     externalReference: `lume-plano-${plan.id}`,
@@ -189,6 +188,8 @@ async function fetchLink(linkId: string): Promise<AsaasPaymentLink> {
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
+  console.log('ASAAS_API_KEY configurada:', !!Deno.env.get('ASAAS_API_KEY'));
+
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
   }
