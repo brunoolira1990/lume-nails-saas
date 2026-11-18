@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { Appointment, Client, Salon, ServiceItem } from '../types';
-import { STUDIO_INFO } from '../data/initialData';
 import { formatCurrency, formatDateBR, getWhatsAppUrl } from '../utils/formatters';
 import { fetchPublicSalonBranding } from '../lib/supabase';
 import { BrandLogo } from './BrandLogo';
@@ -24,8 +23,8 @@ interface ClientPortalViewProps {
   services: ServiceItem[];
   appointments: Appointment[];
   clients: Client[];
-  /** Salão da sessão logada (nome/logo exibidos no topo). */
-  salon?: Pick<Salon, 'id' | 'name' | 'logoUrl'> | null;
+  /** Salão da sessão logada (nome/logo/contato exibidos no portal). */
+  salon?: Pick<Salon, 'id' | 'name' | 'logoUrl' | 'phone' | 'address'> | null;
   /** Salão identificado no link público (?salao=...), para visitantes sem login. */
   salonId?: string;
   initialSelectedServiceId?: string;
@@ -50,14 +49,27 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
   type ClientTab = 'agendar' | 'meus-horarios' | 'fidelidade' | 'cuidados';
   const [activeTab, setActiveTab] = useState<ClientTab>('agendar');
 
-  // Identidade do estúdio no topo. Logada: vem da sessão; link público: RPC.
-  const [branding, setBranding] = useState<{ name: string; logoUrl?: string } | null>(
-    salon ? { name: salon.name, logoUrl: salon.logoUrl } : null
+  // Identidade do estúdio (nome, logo e contato). Logada: vem da sessão;
+  // link público: RPC pública. Sem dado preenchido, fica vazio (sem fallback fake).
+  const [branding, setBranding] = useState<{
+    name: string;
+    logoUrl?: string;
+    phone?: string;
+    address?: string;
+  } | null>(
+    salon
+      ? { name: salon.name, logoUrl: salon.logoUrl, phone: salon.phone, address: salon.address }
+      : null
   );
 
   useEffect(() => {
     if (salon) {
-      setBranding({ name: salon.name, logoUrl: salon.logoUrl });
+      setBranding({
+        name: salon.name,
+        logoUrl: salon.logoUrl,
+        phone: salon.phone,
+        address: salon.address,
+      });
       return;
     }
 
@@ -70,16 +82,28 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
     let active = true;
     void fetchPublicSalonBranding(id).then((result) => {
       if (!active || !result) return;
-      setBranding({ name: result.name, logoUrl: result.logoUrl });
+      setBranding({
+        name: result.name,
+        logoUrl: result.logoUrl,
+        phone: result.phone,
+        address: result.address,
+      });
     });
 
     return () => {
       active = false;
     };
-  }, [salon?.name, salon?.logoUrl, salonId]);
+  }, [salon?.name, salon?.logoUrl, salon?.phone, salon?.address, salonId]);
 
   const studioName = branding?.name?.trim() || 'Lume Nails';
   const studioLogoUrl = branding?.logoUrl;
+  const studioAddress = branding?.address?.trim() || '';
+  const studioPhone = branding?.phone?.trim() || '';
+  const studioWhatsAppUrl = (text: string) =>
+    studioPhone ? getWhatsAppUrl(studioPhone, text) : '';
+  const studioReviewsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+    [studioName, studioAddress].filter(Boolean).join(' ')
+  )}`;
 
   // Booking Form State
   const activeServices = services.filter((s) => s.active);
@@ -323,34 +347,32 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
                     <span className="text-stone-500">Valor Estimado:</span>
                     <strong className="text-emerald-700 font-bold">{formatCurrency(bookingSuccess.totalPrice)}</strong>
                   </div>
-                  <div className="flex justify-between pt-1">
-                    <span className="text-stone-500">Endereço:</span>
-                    <span className="text-stone-800 text-right">{STUDIO_INFO.address}</span>
-                  </div>
+                  {studioAddress && (
+                    <div className="flex justify-between pt-1">
+                      <span className="text-stone-500">Endereço:</span>
+                      <span className="text-stone-800 text-right">{studioAddress}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-3 pt-2">
-                  <a
-                    href={`https://wa.me/${STUDIO_INFO.phoneRaw}?text=Ol%C3%A1%2C%20Lume%20Nails!%20Acabei%20de%20agendar%20pelo%20site%3A%0A%0A%E2%9C%A8%20*Nome%3A*%20${encodeURIComponent(
-                      bookingSuccess.clientName
-                    )}%0A%F0%9F%93%85%20*Data%3A*%20${formatDateBR(bookingSuccess.date)}%20%C3%A0s%20${
-                      bookingSuccess.time
-                    }%0A%F0%9F%92%85%20*Servi%C3%A7o%3A*%20${encodeURIComponent(
-                      bookingSuccess.serviceNames.join(', ')
-                    )}%0A%F0%9F%92%B0%20*Valor%3A*%20${formatCurrency(
-                      bookingSuccess.totalPrice
-                    )}%0A%0APoderia%20confirmar%20por%20gentileza%3F%20%E2%9D%A4%EF%B8%8F`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors"
-                  >
-                    <Phone className="w-4 h-4" />
-                    <span>Confirmar pelo WhatsApp do Lume Nails</span>
-                  </a>
+                  {studioPhone && (
+                    <a
+                      href={studioWhatsAppUrl(
+                        `Olá, ${studioName}! Acabei de agendar pelo site:\n\n✨ *Nome:* ${bookingSuccess.clientName}\n📅 *Data:* ${formatDateBR(bookingSuccess.date)} às ${bookingSuccess.time}\n💅 *Serviço:* ${bookingSuccess.serviceNames.join(', ')}\n💬 *Valor:* ${formatCurrency(bookingSuccess.totalPrice)}\n\nPoderia confirmar por gentileza? ❤️`
+                      )}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-sm transition-colors"
+                    >
+                      <Phone className="w-4 h-4" />
+                      <span>Confirmar pelo WhatsApp</span>
+                    </a>
+                  )}
 
                   {/* Google Review Invite Link */}
                   <a
-                    href={STUDIO_INFO.googleReviewsUrl}
+                    href={studioReviewsUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="w-full py-2.5 rounded-xl border border-stone-200 hover:bg-stone-50 text-stone-700 font-semibold text-xs flex items-center justify-center gap-2 transition-colors shadow-2xs"
@@ -373,7 +395,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
                         d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.24 6.58l4.04 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
                       />
                     </svg>
-                    <span>Avaliar Lume Nails no Google ⭐⭐⭐⭐⭐</span>
+                    <span>Avaliar {studioName} no Google ⭐⭐⭐⭐⭐</span>
                   </a>
 
                   <button
@@ -699,21 +721,26 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
                         </div>
                         <h3 className="font-bold text-stone-900 text-sm">{apt.serviceNames.join(', ')}</h3>
                         <p className="text-xs text-stone-500 mt-0.5">
-                          Valor: {formatCurrency(apt.totalPrice)} • {STUDIO_INFO.address}
+                          Valor: {formatCurrency(apt.totalPrice)}
+                          {studioAddress ? ` • ${studioAddress}` : ''}
                         </p>
                       </div>
 
-                      <a
-                        href={`https://wa.me/${STUDIO_INFO.phoneRaw}?text=Ol%C3%A1%20Lume%20Nails%2C%20sobre%20o%20meu%20agendamento%20do%20dia%20${formatDateBR(
-                          apt.date
-                        )}%20%C3%A0s%20${apt.time}...`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                      >
-                        <Phone className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Falar no WhatsApp</span>
-                      </a>
+                      {studioPhone && (
+                        <a
+                          href={studioWhatsAppUrl(
+                            `Olá, ${studioName}, sobre o meu agendamento do dia ${formatDateBR(
+                              apt.date
+                            )} às ${apt.time}...`
+                          )}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-4 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                        >
+                          <Phone className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Falar no WhatsApp</span>
+                        </a>
+                      )}
                     </div>
                   ))
                 )}
@@ -731,7 +758,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
                   Programa Fidelidade VIP
                 </span>
                 <h2 className="text-2xl font-bold font-['Playfair_Display',serif] text-stone-900 mt-1">
-                  Cartão Fidelidade Lume Nails
+                  Cartão Fidelidade {studioName}
                 </h2>
                 <p className="text-xs text-stone-500">
                   A cada procedimento concluído, você ganha 1 carimbo. No 10º atendimento, ganhe R$ 30 de desconto ou Nail Art completa de cortesia!
@@ -775,7 +802,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
             <div className="bg-[#FAF7F2] rounded-2xl p-4 text-xs text-stone-600 border border-stone-200/60 flex items-start gap-2.5">
               <Info className="w-4 h-4 text-[#8B5CF6] shrink-0 mt-0.5" />
               <span>
-                Seus carimbos são contabilizados automaticamente pelo Lume Nails sempre que seu atendimento for marcado como concluído no sistema.
+                Seus carimbos são contabilizados automaticamente pelo {studioName} sempre que seu atendimento for marcado como concluído no sistema.
               </span>
             </div>
           </div>
@@ -856,7 +883,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
                 </div>
                 <div>
                   <h3 className="font-bold text-stone-900 text-sm">
-                    Já fez suas unhas com o Lume Nails?
+                    Já fez suas unhas com {studioName}?
                   </h3>
                   <p className="text-xs text-stone-500">
                     Sua opinião no Google nos ajuda muito e apoia nosso trabalho! ⭐⭐⭐⭐⭐
@@ -865,7 +892,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
               </div>
 
               <a
-                href={STUDIO_INFO.googleReviewsUrl}
+                href={studioReviewsUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="shrink-0 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#8B5CF6] to-[#7C3AED] text-white text-xs font-bold shadow-xs hover:shadow-md transition-all flex items-center gap-1.5 cursor-pointer"

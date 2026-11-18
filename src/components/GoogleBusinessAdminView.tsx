@@ -29,7 +29,7 @@ import {
   getQrCodeUrl,
 } from '../utils/googleBusiness';
 import { db, isSupabaseConfigured } from '../lib/supabase';
-import { STUDIO_INFO } from '../data/initialData';
+import { useSalon } from '../context/SalonContext';
 
 interface GoogleBusinessAdminViewProps {
   onShowToast?: (message: string) => void;
@@ -38,6 +38,10 @@ interface GoogleBusinessAdminViewProps {
 export const GoogleBusinessAdminView: React.FC<GoogleBusinessAdminViewProps> = ({
   onShowToast,
 }) => {
+  const { salon } = useSalon();
+  const studioName = salon?.name?.trim() || '';
+  const studioAddress = salon?.address?.trim() || '';
+
   const [config, setConfig] = useState<GoogleBusinessConfig>(() =>
     getGoogleBusinessConfig()
   );
@@ -45,9 +49,15 @@ export const GoogleBusinessAdminView: React.FC<GoogleBusinessAdminViewProps> = (
   // Form inputs
   const [apiKey, setApiKey] = useState(config.apiKey || '');
   const [locationId, setLocationId] = useState(config.locationId || config.placeId || '');
-  const [businessName, setBusinessName] = useState(config.businessName || STUDIO_INFO.name);
+  const [businessName, setBusinessName] = useState(config.businessName || studioName);
   const [customReviewUrl, setCustomReviewUrl] = useState(config.reviewUrl || '');
   const [showApiKey, setShowApiKey] = useState(false);
+
+  // O salão carrega de forma assíncrona: preenche o nome quando ele chegar.
+  useEffect(() => {
+    if (!studioName) return;
+    setBusinessName((current) => (current.trim() ? current : studioName));
+  }, [studioName]);
 
   // Status & Feedback
   const [isSaving, setIsSaving] = useState(false);
@@ -115,7 +125,7 @@ export const GoogleBusinessAdminView: React.FC<GoogleBusinessAdminViewProps> = (
       apiKey: apiKey.trim(),
       locationId: locationId.trim(),
       placeId: locationId.trim(),
-      businessName: businessName.trim() || STUDIO_INFO.name,
+      businessName: businessName.trim() || studioName,
       reviewUrl: effectiveReviewUrl,
       isCustomUrlSet: Boolean(customReviewUrl.trim()),
       updatedAt: new Date().toISOString(),
@@ -136,7 +146,7 @@ export const GoogleBusinessAdminView: React.FC<GoogleBusinessAdminViewProps> = (
     if (supabaseResult.success) {
       setSaveStatus({
         type: 'success',
-        message: 'Configurações salvas e sincronizadas com o banco de dados Supabase com sucesso!',
+        message: 'Configurações salvas com sucesso!',
       });
       if (onShowToast) {
         onShowToast('Google Meu Negócio salvo no Supabase com sucesso!');
@@ -185,7 +195,7 @@ export const GoogleBusinessAdminView: React.FC<GoogleBusinessAdminViewProps> = (
         if (data.status === 'OK') {
           setTestResult({
             status: 'success',
-            message: `API conectada com sucesso! Localização identificada: "${data.result?.name || 'Lume Nails'}" (Nota: ${data.result?.rating || '5.0'} ⭐)`,
+            message: `API conectada com sucesso! Localização identificada: "${data.result?.name || studioName || 'estúdio'}" (Nota: ${data.result?.rating || '5.0'} ⭐)`,
             details: data.result,
           });
         } else if (data.status === 'REQUEST_DENIED') {
@@ -206,7 +216,7 @@ export const GoogleBusinessAdminView: React.FC<GoogleBusinessAdminViewProps> = (
           setTestResult({
             status: 'success',
             message:
-              'Formato de Chave de API do Google Cloud válido (AIza...)! A chave e o ID foram registrados no banco de dados e estão prontos para o webhook/proxy de sincronização das avaliações.',
+              'Formato de Chave de API do Google Cloud válido (AIza...)! A chave e o ID foram registrados e estão prontos para o webhook/proxy de sincronização das avaliações.',
           });
         } else {
           setTestResult({
@@ -288,7 +298,7 @@ CREATE POLICY "Permitir atualizacao da configuracao" ON google_business_config
               </h1>
             </div>
             <p className="text-xs sm:text-sm text-stone-600 max-w-2xl leading-relaxed">
-              Configure a <strong>Chave da API do Google</strong> e o <strong>ID da Localização</strong> do estúdio para salvar no banco de dados Supabase e habilitar a sincronização futura das avaliações 5 estrelas.
+              Configure a <strong>Chave da API do Google</strong> e o <strong>ID da Localização</strong> para salvar as configurações do estúdio e habilitar a sincronização futura das avaliações 5 estrelas.
             </p>
           </div>
         </div>
@@ -408,7 +418,7 @@ CREATE POLICY "Permitir atualizacao da configuracao" ON google_business_config
                       type="text"
                       value={businessName}
                       onChange={(e) => setBusinessName(e.target.value)}
-                      placeholder="Lume Nails"
+                      placeholder="Nome do estúdio"
                       className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-stone-200 text-xs focus:outline-none focus:border-[#8B5CF6] focus:ring-1 focus:ring-[#8B5CF6]"
                     />
                   </div>
@@ -554,7 +564,7 @@ CREATE POLICY "Permitir atualizacao da configuracao" ON google_business_config
               Avaliação 5 Estrelas no Balcão
             </h3>
             <p className="text-[11px] text-stone-500 mb-4 max-w-xs leading-relaxed">
-              Ao apontar a câmera do celular, suas clientes abrem diretamente a tela de avaliação da Lume Nails.
+              Ao apontar a câmera do celular, suas clientes abrem diretamente a tela de avaliação do {studioName || 'seu estúdio'}.
             </p>
 
             {/* QR Image Box */}
@@ -573,11 +583,11 @@ CREATE POLICY "Permitir atualizacao da configuracao" ON google_business_config
             </div>
 
             <p className="text-xs font-semibold text-stone-800 mb-1">
-              {businessName || STUDIO_INFO.name}
+              {businessName || studioName}
             </p>
-            <p className="text-[11px] text-stone-500 max-w-xs mb-4">
-              {STUDIO_INFO.address}
-            </p>
+            {studioAddress && (
+              <p className="text-[11px] text-stone-500 max-w-xs mb-4">{studioAddress}</p>
+            )}
 
             <div className="w-full grid grid-cols-2 gap-2 pt-2 border-t border-stone-200/70">
               <a
@@ -629,7 +639,7 @@ CREATE POLICY "Permitir atualizacao da configuracao" ON google_business_config
                 <div>
                   <strong className="block text-stone-900 text-xs">Copie o Place ID do estúdio</strong>
                   <p className="text-[11px] text-stone-500 mt-0.5">
-                    Pesquise por <em>"Lume Nails seu estúdio"</em> no Localizador de Place ID do Google e copie a identificação (inicia com <code>ChIJ...</code>).
+                    Pesquise pelo <em>nome do seu estúdio</em> no Localizador de Place ID do Google e copie a identificação (inicia com <code>ChIJ...</code>).
                   </p>
                 </div>
               </div>

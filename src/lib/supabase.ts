@@ -6,6 +6,7 @@ import {
   Transaction,
   AppointmentStatus,
   PaymentMethod,
+  PolishItem,
   Salon,
 } from '../types';
 import { GoogleBusinessConfig } from '../utils/googleBusiness';
@@ -27,15 +28,9 @@ import {
   type DbRow,
 } from './salonFields';
 
-// Read from env or default to configured Supabase project
-const defaultSupabaseUrl = 'https://sxmkkhcuxllayptcvdbr.supabase.co';
-const defaultSupabaseAnonKey =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN4bWtraGN1eGxsYXlwdGN2ZGJyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk1ODM0ODUsImV4cCI6MjEwNTE1OTQ4NX0.yaNuLyuCxzJuXY7oDuAOzPHXqFO1Q_Tf4gOPLyY7Gf8';
-
-const supabaseUrl: string =
-  (import.meta as any).env?.VITE_SUPABASE_URL || defaultSupabaseUrl;
-const supabaseAnonKey: string =
-  (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || defaultSupabaseAnonKey;
+// O .env é a única fonte da verdade: sem fallback embutido no código.
+const supabaseUrl: string = (import.meta.env.VITE_SUPABASE_URL ?? '').trim();
+const supabaseAnonKey: string = (import.meta.env.VITE_SUPABASE_ANON_KEY ?? '').trim();
 
 export const isSupabaseConfigured = Boolean(
   supabaseUrl &&
@@ -143,13 +138,15 @@ export async function fetchUserSalon(userId: string): Promise<Salon | null> {  i
 // ---------------------------------------------------------------------------
 // Identidade pública do salão (Portal da Cliente)
 // ---------------------------------------------------------------------------
-// A cliente não tem login, então lê apenas nome/logo por uma RPC pública que
+// A cliente não tem login, então lê nome/logo/contato por uma RPC pública que
 // expõe o mínimo necessário. Se a RPC ainda não existir no projeto, devolve
 // null e o portal segue com a marca padrão do Lume Nails.
 export interface PublicSalonBranding {
   id: string;
   name: string;
   logoUrl?: string;
+  phone?: string;
+  address?: string;
 }
 
 export async function fetchPublicSalonBranding(
@@ -170,18 +167,22 @@ export async function fetchPublicSalonBranding(
     }
 
     const row = (Array.isArray(data) ? data[0] : data) as
-      | { salon_id?: string; name?: string; logo_url?: string }
+      | { salon_id?: string; name?: string; logo_url?: string; phone?: string; address?: string }
       | null;
 
     if (!row) return null;
 
     const name = typeof row.name === 'string' ? row.name.trim() : '';
     const logoUrl = typeof row.logo_url === 'string' ? row.logo_url.trim() : '';
+    const phone = typeof row.phone === 'string' ? row.phone.trim() : '';
+    const address = typeof row.address === 'string' ? row.address.trim() : '';
 
     return {
       id: row.salon_id ? String(row.salon_id) : id,
       name: name || 'Lume Nails',
       logoUrl: logoUrl || undefined,
+      phone: phone || undefined,
+      address: address || undefined,
     };
   } catch (error) {
     console.warn('Aviso: falha ao carregar a identidade pública do salão.', error);
@@ -372,6 +373,35 @@ function mapTransactionToDb(t: Transaction): any {
     category: t.category,
     paymentmethod: t.paymentMethod,
     appointmentid: t.appointmentId || null,
+  };
+}
+
+function mapPolishFromDb(r: DbRow): PolishItem {
+  return {
+    id: String(r.id ?? ''),
+    salonId: readDbString(r, ['salon_id']) ?? '',
+    name: readDbString(r, ['nome', 'name']) ?? '',
+    brand: readDbString(r, ['marca', 'brand']) ?? '',
+    colorHex: readDbString(r, ['cor_hex', 'colorhex']) ?? '',
+    createdAt: readDbString(r, ['created_at']) ?? undefined,
+  };
+}
+
+interface PolishDbRow {
+  id: string;
+  salon_id: string | null;
+  marca: string;
+  nome: string;
+  cor_hex: string;
+}
+
+function mapPolishToDb(p: PolishItem): PolishDbRow {
+  return {
+    id: p.id,
+    salon_id: currentSalonId || p.salonId || null,
+    marca: p.brand,
+    nome: p.name,
+    cor_hex: p.colorHex,
   };
 }
 
@@ -567,6 +597,54 @@ export const db = {
       return !error;
     } catch (err) {
       console.warn('Supabase deleteTransaction error:', err);
+      return false;
+    }
+  },
+
+  // ---------- Esmaltes ----------
+  async fetchPolishes(salonIdOverride?: string | null): Promise<PolishItem[] | null> {
+    if (!supabase) return null;
+    try {
+      let query = supabase
+        .from('esmaltes')
+        .select('*')
+        .order('created_at', { ascending: false });
+      query = withSalonFilter(query, resolveSalonFilter(salonIdOverride));
+      const { data, error } = await query;
+      if (error) {
+        console.warn('Supabase fetchPolishes error:', error.message);
+        return null;
+      }
+      return (data || [])
+        .map((row) => mapPolishFromDb(row as DbRow))
+        .filter((p) => p.id && p.name);
+    } catch (err) {
+      console.warn('Supabase error:', err);
+      return null;
+    }
+  },
+
+  async savePolish(polish: PolishItem): Promise<boolean> {
+    if (!supabase) return false;
+    try {
+      const { error } = await supabase.from('esmaltes').upsert(mapPolishToDb(polish));
+      if (error) throw error;
+      return true;
+    } catch (err) {
+      console.warn('Supabase savePolish error:', err);
+      return false;
+    }
+  },
+
+  async deletePolish(id: string): Promise<boolean> {
+    if (!supabase) return false;
+    try {
+      let query = supabase.from('esmaltes').delete().eq('id', id);
+      query = withSalonFilter(query, currentSalonId);
+      const { error } = await query;
+      return !error;
+    } catch (err) {
+      console.warn('Supabase deletePolish error:', err);
       return false;
     }
   },

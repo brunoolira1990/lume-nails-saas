@@ -102,12 +102,15 @@ export interface Transaction {
   appointmentId?: string;
 }
 
+/** Esmalte da tabela `esmaltes` (id, salon_id, marca, nome, cor_hex). */
 export interface PolishItem {
   id: string;
+  salonId?: string;
   name: string;
   brand: string;
   colorHex: string;
-  finish: 'cremoso' | 'cintilante' | 'glitter' | 'fosco' | 'gel';
-  inStock: boolean;
-  category: 'nude' | 'vermelho' | 'rosa' | 'escuro' | 'colorido' | 'francesinha';
+  createdAt?: string;
 }
+
+/** Dados mínimos do formulário de cadastro de esmalte. */
+export type PolishDraft = Pick<PolishItem, 'name' | 'brand' | 'colorHex'>;

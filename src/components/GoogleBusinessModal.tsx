@@ -23,7 +23,6 @@ import {
   getQrCodeUrl,
 } from '../utils/googleBusiness';
 import { GoogleReview } from '../data/initialData';
-import { STUDIO_INFO } from '../data/initialData';
 import { db, isSupabaseConfigured } from '../lib/supabase';
 
 interface GoogleBusinessModalProps {
@@ -47,7 +46,7 @@ export const GoogleBusinessModal: React.FC<GoogleBusinessModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'config' | 'qrcode' | 'reviews' | 'whatsapp'>('config');
   const [tempUrlOrPlaceId, setTempUrlOrPlaceId] = useState(config.placeId || config.reviewUrl);
-  const [tempAddress, setTempAddress] = useState(config.address || STUDIO_INFO.address);
+  const [tempAddress, setTempAddress] = useState(config.address || '');
   const [copied, setCopied] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -72,7 +71,7 @@ export const GoogleBusinessModal: React.FC<GoogleBusinessModalProps> = ({
       ...config,
       reviewUrl: directUrl,
       placeId: !isUrl ? tempUrlOrPlaceId.trim() : config.placeId,
-      address: tempAddress.trim() || STUDIO_INFO.address,
+      address: tempAddress.trim(),
       isCustomUrlSet: Boolean(tempUrlOrPlaceId.trim()),
       reviewCount: reviews.length,
     };
@@ -349,7 +348,7 @@ export const GoogleBusinessModal: React.FC<GoogleBusinessModalProps> = ({
                   </div>
 
                   <p className="text-[10px] text-stone-400 font-medium">
-                    {tempAddress || STUDIO_INFO.address}
+                    {tempAddress}
                   </p>
                 </div>
 

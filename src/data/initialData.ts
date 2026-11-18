@@ -1,17 +1,7 @@
-import { Client, ServiceItem, Appointment, Transaction, PolishItem } from '../types';
+import { Client, ServiceItem, Appointment, Transaction } from '../types';
 
-export const STUDIO_INFO = {
-  name: 'Lume Nails',
-  phone: '(11) 95251-7402',
-  phoneRaw: '5511952517402',
-  instagram: '@lumenails',
-  instagramUrl: 'https://instagram.com/lumenails',
-  address: 'Seu estúdio de beleza',
-  googleMapsUrl: 'https://www.google.com/maps/search/?api=1&query=Seu+estúdio+de+beleza',
-  googleReviewsUrl: 'https://www.google.com/maps/search/?api=1&query=Lume+Nails+Seu+estúdio+de+beleza',
-  googleRating: 5.0,
-  googleReviewCount: 0,
-};
+// Dados do estúdio (nome, endereço, telefone, avaliações) NÃO ficam aqui:
+// são lidos da tabela `salons` do salão logado ou do link público.
 
 export interface GoogleReview {
   id: string;
@@ -105,19 +95,3 @@ export const INITIAL_APPOINTMENTS: Appointment[] = [];
 
 export const INITIAL_TRANSACTIONS: Transaction[] = [];
 
-export const INITIAL_POLISHES: PolishItem[] = [
-  { id: 'pol-1', name: 'Renda Clássico', brand: 'Risqué', colorHex: '#FDFCF7', finish: 'cremoso', inStock: true, category: 'francesinha' },
-  { id: 'pol-2', name: 'Preto Sépia', brand: 'Risqué', colorHex: '#1C1917', finish: 'cremoso', inStock: true, category: 'escuro' },
-  { id: 'pol-3', name: 'Vermelho Carmim', brand: 'Impala', colorHex: '#B91C1C', finish: 'cremoso', inStock: true, category: 'vermelho' },
-  { id: 'pol-4', name: 'Doce Pérola', brand: 'Impala', colorHex: '#F5EBE6', finish: 'cintilante', inStock: true, category: 'nude' },
-  { id: 'pol-5', name: 'Taça de Vinho', brand: 'Dailus', colorHex: '#7F1D1D', finish: 'cremoso', inStock: true, category: 'escuro' },
-  { id: 'pol-6', name: 'Nude Rosado Clássico', brand: 'Colorama', colorHex: '#E2B8A8', finish: 'cremoso', inStock: true, category: 'nude' },
-  { id: 'pol-7', name: 'Chic Pele', brand: 'Colorama', colorHex: '#D4A390', finish: 'cremoso', inStock: true, category: 'nude' },
-  { id: 'pol-8', name: 'Rosa Vintage', brand: 'Risqué', colorHex: '#DB7093', finish: 'cremoso', inStock: true, category: 'rosa' },
-  { id: 'pol-9', name: 'As Mil Purpurinas', brand: 'Risqué', colorHex: '#E0E7FF', finish: 'glitter', inStock: true, category: 'colorido' },
-  { id: 'pol-10', name: 'Classic Cover Gel', brand: 'Vòlia', colorHex: '#E8A598', finish: 'gel', inStock: true, category: 'nude' },
-  { id: 'pol-11', name: 'Verde Menta Pastel', brand: 'Dailus', colorHex: '#A7F3D0', finish: 'cremoso', inStock: true, category: 'colorido' },
-  { id: 'pol-12', name: 'Lavanda Relax', brand: 'Impala', colorHex: '#DDD6FE', finish: 'cremoso', inStock: true, category: 'colorido' },
-  { id: 'pol-13', name: 'Top Coat Efeito Fosco', brand: 'Risqué', colorHex: '#E5E7EB', finish: 'fosco', inStock: true, category: 'nude' },
-  { id: 'pol-14', name: 'Carmim Intenso', brand: 'Anita', colorHex: '#991B1B', finish: 'cremoso', inStock: false, category: 'vermelho' },
-];

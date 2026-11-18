@@ -31,8 +31,16 @@ import {
 } from './ui/accordion';
 import { cn } from '@/lib/utils';
 import { fetchPublicCheckoutLinks, type CheckoutLinks } from '@/lib/saasSettings';
-import { STUDIO_INFO } from '../data/initialData';
 import type { ServiceItem } from '../types';
+
+/**
+ * Contato comercial do site de vendas do Lume Nails (suporte a quem quer
+ * assinar). Não é dado de salão: os dados do estúdio vêm da tabela `salons`.
+ */
+const SALES_WHATSAPP = '5511952517402';
+const SALES_WHATSAPP_LABEL = '(11) 95251-7402';
+const SALES_INSTAGRAM_URL = 'https://instagram.com/lumenails';
+const SALES_INSTAGRAM_LABEL = '@lumenails';
 
 export interface LandingPageViewProps {
   services: ServiceItem[];
@@ -266,7 +274,7 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
 
   const proCheckoutUrl = checkoutUrlFor('pro');
 
-  const whatsappUrl = `https://wa.me/${STUDIO_INFO.phoneRaw}?text=${encodeURIComponent(
+  const whatsappUrl = `https://wa.me/${SALES_WHATSAPP}?text=${encodeURIComponent(
     'Olá! Gostaria de saber mais sobre o Lume Nails para o meu estúdio de beleza.'
   )}`;
 
@@ -878,16 +886,16 @@ export const LandingPageView: React.FC<LandingPageViewProps> = ({
               className="inline-flex items-center gap-1.5 transition-colors hover:text-zinc-900"
             >
               <Phone className="h-3.5 w-3.5 text-emerald-600" />
-              {STUDIO_INFO.phone}
+              {SALES_WHATSAPP_LABEL}
             </a>
             <a
-              href={STUDIO_INFO.instagramUrl}
+              href={SALES_INSTAGRAM_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 transition-colors hover:text-zinc-900"
             >
               <Instagram className="h-3.5 w-3.5 text-purple-600" />
-              @lumenails
+              {SALES_INSTAGRAM_LABEL}
             </a>
           </div>
         </div>

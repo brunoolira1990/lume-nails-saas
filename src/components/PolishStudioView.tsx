@@ -1,38 +1,69 @@
-import React, { useState } from 'react';
-import { Palette, Sparkles, Check, Plus, Trash2, X, RefreshCw, Eye } from 'lucide-react';
-import { PolishItem, NailShape } from '../types';
+import React, { useEffect, useState } from 'react';
+import { Palette, Sparkles, Check, Plus, Trash2, X, Eye, Loader2 } from 'lucide-react';
+import { PolishDraft, PolishItem, NailShape } from '../types';
 
 interface PolishStudioViewProps {
   polishes: PolishItem[];
-  onAddPolish: (polish: PolishItem) => void;
-  onToggleStock: (id: string) => void;
-  onDeletePolish: (id: string) => void;
+  onAddPolish: (draft: PolishDraft) => Promise<boolean>;
+  onDeletePolish: (id: string) => Promise<boolean>;
+}
+
+/** Cor neutra exibida quando a esmalteca ainda não tem nenhum esmalte. */
+const EMPTY_NAIL_COLOR = '#E7E5E4';
+
+type FinishEffect = 'cremoso' | 'fosco' | 'francesinha' | 'glitter' | 'babyboomer';
+
+/** Remove cores repetidas mantendo a ordem da esmalteca. */
+function uniqueByColor(polishes: PolishItem[]): PolishItem[] {
+  const seen = new Set<string>();
+  return polishes.filter((p) => {
+    const key = p.colorHex.trim().toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export const PolishStudioView: React.FC<PolishStudioViewProps> = ({
   polishes,
   onAddPolish,
-  onToggleStock,
   onDeletePolish,
 }) => {
   // Simulator states
   const [selectedShape, setSelectedShape] = useState<NailShape>('amendoada');
-  const [selectedColor, setSelectedColor] = useState<string>('#B91C1C'); // red
-  const [selectedPolishName, setSelectedPolishName] = useState<string>('Vermelho Carmim (Impala)');
-  const [finishEffect, setFinishEffect] = useState<'cremoso' | 'fosco' | 'francesinha' | 'glitter' | 'babyboomer'>('cremoso');
+  const [selectedPolishId, setSelectedPolishId] = useState<string | null>(null);
+  const [accentPolishId, setAccentPolishId] = useState<string | null>(null);
+  const [finishEffect, setFinishEffect] = useState<FinishEffect>('cremoso');
   const [accentFinger, setAccentFinger] = useState<boolean>(true); // filha única no anelar
-  const [accentColor, setAccentColor] = useState<string>('#FDFCF7'); // branca ou glitter
 
   // Polish catalog states
-  const [categoryFilter, setCategoryFilter] = useState<string>('todos');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [formError, setFormError] = useState('');
 
   // New polish form
   const [newName, setNewName] = useState('');
-  const [newBrand, setNewBrand] = useState('Risqué');
+  const [newBrand, setNewBrand] = useState('');
   const [newColorHex, setNewColorHex] = useState('#E2B8A8');
-  const [newFinish, setNewFinish] = useState<'cremoso' | 'cintilante' | 'glitter' | 'fosco' | 'gel'>('cremoso');
-  const [newCategory, setNewCategory] = useState<'nude' | 'vermelho' | 'rosa' | 'escuro' | 'colorido' | 'francesinha'>('nude');
+
+  // A esmalteca vem do banco: se a cor selecionada sumir (exclusão), cai para
+  // a primeira disponível.
+  useEffect(() => {
+    if (selectedPolishId && polishes.some((p) => p.id === selectedPolishId)) return;
+    setSelectedPolishId(polishes[0]?.id ?? null);
+  }, [polishes, selectedPolishId]);
+
+  useEffect(() => {
+    if (accentPolishId && polishes.some((p) => p.id === accentPolishId)) return;
+    setAccentPolishId(null);
+  }, [polishes, accentPolishId]);
+
+  const selectedPolish = polishes.find((p) => p.id === selectedPolishId) ?? null;
+  const accentPolish = polishes.find((p) => p.id === accentPolishId) ?? null;
+  const selectedColor = selectedPolish?.colorHex || EMPTY_NAIL_COLOR;
+  const accentColor = accentPolish?.colorHex || selectedColor;
+  const quickPalette = uniqueByColor(polishes).slice(0, 12);
+  const accentPalette = uniqueByColor(polishes).slice(0, 6);
 
   const shapesList: { id: NailShape; name: string; description: string }[] = [
     { id: 'amendoada', name: 'Amendoada', description: 'Alongada e curvada na ponta' },
@@ -43,35 +74,48 @@ export const PolishStudioView: React.FC<PolishStudioViewProps> = ({
     { id: 'redonda', name: 'Redonda', description: 'Curvatura natural da ponta dos dedos' },
   ];
 
-  const filteredPolishes = polishes.filter((p) => {
-    if (categoryFilter === 'todos') return true;
-    return p.category === categoryFilter;
-  });
-
-  const handleSelectPolish = (polish: PolishItem) => {
-    setSelectedColor(polish.colorHex);
-    setSelectedPolishName(`${polish.name} (${polish.brand})`);
-    if (polish.finish === 'fosco') setFinishEffect('fosco');
-    else if (polish.finish === 'glitter') setFinishEffect('glitter');
+  const openAddModal = () => {
+    setFormError('');
+    setIsAddModalOpen(true);
   };
 
-  const handleAddPolishSubmit = (e: React.FormEvent) => {
+  const handleAddPolishSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newName.trim()) return;
+    if (isSaving) return;
 
-    const newPol: PolishItem = {
-      id: 'pol-' + Date.now(),
-      name: newName.trim(),
-      brand: newBrand.trim(),
-      colorHex: newColorHex,
-      finish: newFinish,
-      inStock: true,
-      category: newCategory,
-    };
+    const name = newName.trim();
+    const brand = newBrand.trim();
+    if (!name || !brand) {
+      setFormError('Preencha o nome e a marca do esmalte.');
+      return;
+    }
 
-    onAddPolish(newPol);
+    const colorHex = newColorHex.trim();
+    if (!/^#[0-9a-fA-F]{6}$/.test(colorHex)) {
+      setFormError('Informe a cor no formato hexadecimal, ex: #E2B8A8.');
+      return;
+    }
+
+    setIsSaving(true);
+    const saved = await onAddPolish({ name, brand, colorHex });
+    setIsSaving(false);
+
+    if (!saved) {
+      setFormError('Não foi possível salvar o esmalte. Tente novamente.');
+      return;
+    }
+
     setIsAddModalOpen(false);
     setNewName('');
+    setNewBrand('');
+    setNewColorHex('#E2B8A8');
+    setFormError('');
+  };
+
+  const handleDeletePolish = async (polish: PolishItem) => {
+    const confirmed = window.confirm(`Excluir o esmalte "${polish.name}" da esmalteca?`);
+    if (!confirmed) return;
+    await onDeletePolish(polish.id);
   };
 
   // Shape rendering helpers
@@ -131,7 +175,9 @@ export const PolishStudioView: React.FC<PolishStudioViewProps> = ({
               <p className="text-sm font-bold text-stone-900 capitalize">
                 Formato {selectedShape} • Efeito {finishEffect}
               </p>
-              <p className="text-xs text-[#7C3AED] font-semibold">{selectedPolishName}</p>
+              <p className="text-xs text-[#7C3AED] font-semibold">
+                {selectedPolish ? `${selectedPolish.name} (${selectedPolish.brand})` : 'Nenhum esmalte cadastrado'}
+              </p>
             </div>
 
             <div className="flex items-center gap-2">
@@ -219,40 +265,33 @@ export const PolishStudioView: React.FC<PolishStudioViewProps> = ({
           {/* Color Palettes Swatches in Simulator */}
           <div className="w-full mt-6 pt-4 border-t border-stone-200">
             <span className="text-[11px] font-semibold text-stone-600 block mb-2">
-              Toque em uma cor da paleta rápida:
+              Toque em uma cor cadastrada na esmalteca:
             </span>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1">
-              {[
-                { hex: '#B91C1C', name: 'Vermelho Carmim' },
-                { hex: '#7F1D1D', name: 'Taça de Vinho' },
-                { hex: '#E2B8A8', name: 'Nude Clássico' },
-                { hex: '#FDFCF7', name: 'Renda / Branquinho' },
-                { hex: '#1C1917', name: 'Preto Chic' },
-                { hex: '#DB7093', name: 'Rosa Vintage' },
-                { hex: '#A7F3D0', name: 'Menta Pastel' },
-                { hex: '#DDD6FE', name: 'Lavanda' },
-                { hex: '#F59E0B', name: 'Ouro Encapsulado' },
-              ].map((swatch, i) => (
-                <button
-                  key={i}
-                  title={swatch.name}
-                  onClick={() => {
-                    setSelectedColor(swatch.hex);
-                    setSelectedPolishName(swatch.name);
-                  }}
-                  className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 shrink-0 cursor-pointer flex items-center justify-center ${
-                    selectedColor === swatch.hex
-                      ? 'border-[#E3DFFD]/80 ring-2 ring-[#C4B5FD]/20'
-                      : 'border-white shadow-xs'
-                  }`}
-                  style={{ backgroundColor: swatch.hex }}
-                >
-                  {selectedColor === swatch.hex && (
-                    <Check className={`w-3.5 h-3.5 ${swatch.hex === '#FDFCF7' ? 'text-stone-800' : 'text-white'}`} />
-                  )}
-                </button>
-              ))}
-            </div>
+            {quickPalette.length === 0 ? (
+              <p className="text-[11px] text-stone-500">
+                Nenhum esmalte cadastrado ainda. Use "Adicionar Esmalte" abaixo para montar sua esmalteca.
+              </p>
+            ) : (
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {quickPalette.map((polish) => (
+                  <button
+                    key={polish.id}
+                    title={`${polish.name} (${polish.brand})`}
+                    onClick={() => setSelectedPolishId(polish.id)}
+                    className={`w-8 h-8 rounded-full border-2 transition-transform hover:scale-110 shrink-0 cursor-pointer flex items-center justify-center ${
+                      selectedColor === polish.colorHex
+                        ? 'border-[#E3DFFD]/80 ring-2 ring-[#C4B5FD]/20'
+                        : 'border-white shadow-xs'
+                    }`}
+                    style={{ backgroundColor: polish.colorHex }}
+                  >
+                    {selectedColor === polish.colorHex && (
+                      <Check className="w-3.5 h-3.5 text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.45)]" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
@@ -296,10 +335,10 @@ export const PolishStudioView: React.FC<PolishStudioViewProps> = ({
                 { id: 'francesinha', label: 'Francesinha Sorriso', desc: 'Ponta clássica' },
                 { id: 'babyboomer', label: 'Babyboomer / Degradê', desc: 'Transição suave' },
                 { id: 'glitter', label: 'Glitter Total', desc: 'Brilho luxuoso' },
-              ].map((fx) => (
+              ].map((fx: { id: FinishEffect; label: string; desc: string }) => (
                 <button
                   key={fx.id}
-                  onClick={() => setFinishEffect(fx.id as any)}
+                  onClick={() => setFinishEffect(fx.id)}
                   className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                     finishEffect === fx.id
                       ? 'bg-stone-900 border-stone-900 text-white shadow-2xs'
@@ -321,25 +360,28 @@ export const PolishStudioView: React.FC<PolishStudioViewProps> = ({
               <span className="text-xs font-semibold text-stone-900 block mb-1.5">
                 Cor da Filha Única (Dedo Anelar):
               </span>
-              <div className="flex items-center gap-2">
-                {[
-                  { hex: '#FDFCF7', label: 'Branco / Glazed' },
-                  { hex: '#F59E0B', label: 'Glitter Ouro' },
-                  { hex: '#CBD5E1', label: 'Prata Espelhado' },
-                  { hex: '#1C1917', label: 'Preto Intenso' },
-                  { hex: '#DB7093', label: 'Rosa Glitz' },
-                ].map((col, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setAccentColor(col.hex)}
-                    className={`w-6 h-6 rounded-full border border-stone-300 cursor-pointer ${
-                      accentColor === col.hex ? 'ring-2 ring-[#C4B5FD] scale-110' : ''
-                    }`}
-                    style={{ backgroundColor: col.hex }}
-                    title={col.label}
-                  />
-                ))}
-              </div>
+              {accentPalette.length === 0 ? (
+                <p className="text-[11px] text-stone-500">
+                  Cadastre esmaltes para escolher a cor do dedo anelar.
+                </p>
+              ) : (
+                <div className="flex items-center gap-2">
+                  {accentPalette.map((polish) => {
+                    const isActive = accentPolish?.id === polish.id;
+                    return (
+                      <button
+                        key={polish.id}
+                        onClick={() => setAccentPolishId(isActive ? null : polish.id)}
+                        className={`w-6 h-6 rounded-full border border-stone-300 cursor-pointer ${
+                          isActive ? 'ring-2 ring-[#C4B5FD] scale-110' : ''
+                        }`}
+                        style={{ backgroundColor: polish.colorHex }}
+                        title={`${polish.name} (${polish.brand})`}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -349,106 +391,95 @@ export const PolishStudioView: React.FC<PolishStudioViewProps> = ({
       <div className="bg-white rounded-2xl p-5 border border-stone-200/80 shadow-2xs">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <h2 className="text-base sm:text-lg font-bold text-stone-900">
-              Esmalteca & Estoque do Studio ({polishes.length} vidrinhos)
+            <h2 className="text-base sm:text-lg font-bold text-stone-900 flex items-center gap-2">
+              <Palette className="w-4 h-4 text-[#8B5CF6]" />
+              Esmalteca do Studio ({polishes.length} {polishes.length === 1 ? 'esmalte' : 'esmaltes'})
             </h2>
             <p className="text-xs text-stone-500">
-              Controle quais cores e géis estão disponíveis na bancada ou precisam de reposição.
+              Os esmaltes cadastrados aqui alimentam o simulador de unhas.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setIsAddModalOpen(true)}
+              onClick={openAddModal}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#8B5CF6] hover:bg-[#6D28D9] text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Cadastrar Esmalte</span>
+              <span>Adicionar Esmalte</span>
             </button>
           </div>
         </div>
 
-        {/* Categories Bar */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pt-4 mt-4 border-t border-stone-100 pb-1">
-          {[
-            { id: 'todos', label: 'Todas as Cores' },
-            { id: 'nude', label: 'Nudes & Neutros' },
-            { id: 'vermelho', label: 'Vermelhos & Vinhos' },
-            { id: 'rosa', label: 'Rosas & Lilases' },
-            { id: 'escuro', label: 'Pretos & Escuros' },
-            { id: 'francesinha', label: 'Branquinhos / Francesinha' },
-            { id: 'colorido', label: 'Coloridos & Glitters' },
-          ].map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => setCategoryFilter(cat.id)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors cursor-pointer ${
-                categoryFilter === cat.id
-                  ? 'bg-stone-900 text-white shadow-2xs font-semibold'
-                  : 'bg-stone-50 hover:bg-stone-100 text-stone-600 border border-stone-200/60'
-              }`}
-            >
-              {cat.label}
-            </button>
-          ))}
-        </div>
-
         {/* Polishes Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mt-4">
-          {filteredPolishes.map((polish) => (
-            <div
-              key={polish.id}
-              className={`p-3 rounded-xl border transition-all flex flex-col justify-between ${
-                polish.inStock
-                  ? 'bg-stone-50/70 border-stone-200 hover:border-[#E3DFFD]'
-                  : 'bg-stone-100/60 border-stone-200 opacity-60'
-              }`}
+        {polishes.length === 0 ? (
+          <div className="mt-4 rounded-xl border border-dashed border-stone-300 bg-stone-50/60 p-8 text-center">
+            <Sparkles className="w-6 h-6 text-stone-400 mx-auto mb-2" />
+            <p className="text-xs font-semibold text-stone-700">Sua esmalteca está vazia</p>
+            <p className="text-[11px] text-stone-500 mt-1">
+              Cadastre seus vidrinhos com marca, nome e cor para começar a simular.
+            </p>
+            <button
+              onClick={openAddModal}
+              className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-stone-300 text-stone-700 text-xs font-semibold hover:bg-white cursor-pointer"
             >
-              <div>
-                <div className="flex items-center justify-between gap-1 mb-2">
-                  <span
-                    className="w-5 h-5 rounded-full border border-black/10 shadow-xs shrink-0"
-                    style={{ backgroundColor: polish.colorHex }}
-                  />
-                  <button
-                    onClick={() => onToggleStock(polish.id)}
-                    title={polish.inStock ? 'Marcar como esgotado' : 'Marcar em estoque'}
-                    className={`text-[9px] font-bold px-1.5 py-0.2 rounded-md border cursor-pointer ${
-                      polish.inStock
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-stone-200 text-stone-600 border-stone-300'
-                    }`}
-                  >
-                    {polish.inStock ? 'Em estoque' : 'Esgotado'}
-                  </button>
+              <Plus className="w-3.5 h-3.5" />
+              <span>Adicionar Esmalte</span>
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 mt-4">
+            {polishes.map((polish) => {
+              const isSelected = selectedPolish?.id === polish.id;
+              return (
+                <div
+                  key={polish.id}
+                  className={`p-3 rounded-xl border transition-all flex flex-col justify-between ${
+                    isSelected
+                      ? 'bg-[#F5F3FF]/70 border-[#C4B5FD]'
+                      : 'bg-stone-50/70 border-stone-200 hover:border-[#E3DFFD]'
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-1 mb-2">
+                      <span
+                        className="w-5 h-5 rounded-full border border-black/10 shadow-xs shrink-0"
+                        style={{ backgroundColor: polish.colorHex }}
+                      />
+                      {isSelected && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md border bg-white text-[#6D28D9] border-[#E3DFFD]">
+                          No simulador
+                        </span>
+                      )}
+                    </div>
+
+                    <h4 className="text-xs font-bold text-stone-900 line-clamp-1">{polish.name}</h4>
+                    <p className="text-[11px] text-stone-500 line-clamp-1">{polish.brand}</p>
+                    <span className="text-[10px] text-stone-400 mt-0.5 block">{polish.colorHex}</span>
+                  </div>
+
+                  <div className="mt-3 pt-2 border-t border-stone-200/60 flex items-center justify-between">
+                    <button
+                      onClick={() => setSelectedPolishId(polish.id)}
+                      className="text-[10px] font-bold text-[#7C3AED] hover:text-[#6D28D9] flex items-center gap-1 cursor-pointer"
+                    >
+                      <Eye className="w-3 h-3" />
+                      <span>Testar</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleDeletePolish(polish)}
+                      title={`Excluir ${polish.name}`}
+                      className="text-stone-400 hover:text-red-600 p-1 rounded-sm cursor-pointer"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
-
-                <h4 className="text-xs font-bold text-stone-900 line-clamp-1">{polish.name}</h4>
-                <p className="text-[11px] text-stone-500">{polish.brand}</p>
-                <span className="text-[10px] text-stone-400 capitalize mt-0.5 block">
-                  {polish.finish}
-                </span>
-              </div>
-
-              <div className="mt-3 pt-2 border-t border-stone-200/60 flex items-center justify-between">
-                <button
-                  onClick={() => handleSelectPolish(polish)}
-                  className="text-[10px] font-bold text-[#7C3AED] hover:text-[#7C3AED] flex items-center gap-1 cursor-pointer"
-                >
-                  <Eye className="w-3 h-3" />
-                  <span>Testar</span>
-                </button>
-
-                <button
-                  onClick={() => onDeletePolish(polish.id)}
-                  className="text-stone-300 hover:text-[#7C3AED] p-1 rounded-sm cursor-pointer"
-                >
-                  <Trash2 className="w-3 h-3" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Modal: Add Polish */}
@@ -492,66 +523,50 @@ export const PolishStudioView: React.FC<PolishStudioViewProps> = ({
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-semibold text-stone-700 mb-1">
-                    Tom / Amostra
-                  </label>
+              <div>
+                <label className="block text-xs font-semibold text-stone-700 mb-1">
+                  Cor do Esmalte *
+                </label>
+                <div className="flex items-center gap-2">
                   <input
                     type="color"
+                    aria-label="Selecionar cor do esmalte"
                     value={newColorHex}
                     onChange={(e) => setNewColorHex(e.target.value)}
-                    className="w-full h-8 bg-transparent cursor-pointer rounded-lg border border-stone-300"
+                    className="w-10 h-9 shrink-0 bg-transparent cursor-pointer rounded-lg border border-stone-300"
+                  />
+                  <input
+                    type="text"
+                    value={newColorHex}
+                    onChange={(e) => setNewColorHex(e.target.value)}
+                    placeholder="#E2B8A8"
+                    className="w-full bg-stone-50 border border-stone-300 rounded-lg px-3 py-2 text-xs font-mono uppercase text-stone-900 focus:outline-hidden"
                   />
                 </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-stone-700 mb-1">
-                    Acabamento
-                  </label>
-                  <select
-                    value={newFinish}
-                    onChange={(e) => setNewFinish(e.target.value as any)}
-                    className="w-full bg-stone-50 border border-stone-300 rounded-lg px-2 py-2 text-xs text-stone-900"
-                  >
-                    <option value="cremoso">Cremoso</option>
-                    <option value="cintilante">Cintilante</option>
-                    <option value="glitter">Glitter</option>
-                    <option value="fosco">Fosco</option>
-                    <option value="gel">Gel Construtor</option>
-                  </select>
-                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-stone-700 mb-1">Categoria</label>
-                <select
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value as any)}
-                  className="w-full bg-stone-50 border border-stone-300 rounded-lg px-2 py-2 text-xs text-stone-900"
-                >
-                  <option value="nude">Nude / Neutro</option>
-                  <option value="vermelho">Vermelho</option>
-                  <option value="rosa">Rosa</option>
-                  <option value="escuro">Escuro</option>
-                  <option value="francesinha">Francesinha</option>
-                  <option value="colorido">Colorido / Fantasia</option>
-                </select>
-              </div>
+              {formError && (
+                <p className="text-[11px] font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg px-2.5 py-1.5">
+                  {formError}
+                </p>
+              )}
 
               <div className="flex items-center justify-end gap-2 pt-3 border-t border-stone-100">
                 <button
                   type="button"
                   onClick={() => setIsAddModalOpen(false)}
-                  className="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-700 text-xs font-semibold"
+                  disabled={isSaving}
+                  className="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-700 text-xs font-semibold disabled:opacity-60"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded-lg bg-[#8B5CF6] hover:bg-[#6D28D9] text-white text-xs font-bold shadow-xs"
+                  disabled={isSaving}
+                  className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[#8B5CF6] hover:bg-[#6D28D9] text-white text-xs font-bold shadow-xs disabled:opacity-60"
                 >
-                  Salvar Esmalte
+                  {isSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>{isSaving ? 'Salvando...' : 'Salvar Esmalte'}</span>
                 </button>
               </div>
             </form>

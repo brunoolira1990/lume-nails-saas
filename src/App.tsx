@@ -20,9 +20,8 @@ import {
   INITIAL_CLIENTS,
   INITIAL_SERVICES,
   INITIAL_TRANSACTIONS,
-  INITIAL_POLISHES,
 } from './data/initialData';
-import { Appointment, Client, ServiceItem, Transaction, PolishItem, AppointmentStatus } from './types';
+import { Appointment, Client, ServiceItem, Transaction, PolishDraft, PolishItem, AppointmentStatus } from './types';
 import {
   db,
   isSupabaseConfigured,
@@ -107,10 +106,8 @@ function AppContent() {
     return saved ? JSON.parse(saved) : [];
   });
 
-  const [polishes, setPolishes] = useState<PolishItem[]>(() => {
-    const saved = localStorage.getItem('kethelin_polishes_v1');
-    return saved ? JSON.parse(saved) : INITIAL_POLISHES;
-  });
+  // A esmalteca vem da tabela `esmaltes` do salão — nada de cores fixas.
+  const [polishes, setPolishes] = useState<PolishItem[]>([]);
 
   // Modals state
   const [isAppointmentModalOpen, setIsAppointmentModalOpen] = useState(false);
@@ -140,17 +137,20 @@ function AppContent() {
         // useSalon's effect already loads the session + salon + sets currentSalonId.
         // Once the salon is known, fetch the data filtered by that salon.
         if (isConnected && salonId) {
-          const [remoteApts, remoteClients, remoteServices, remoteTxs] = await Promise.all([
-            db.fetchAppointments(),
-            db.fetchClients(),
-            db.fetchServices(),
-            db.fetchTransactions(),
-          ]);
+          const [remoteApts, remoteClients, remoteServices, remoteTxs, remotePolishes] =
+            await Promise.all([
+              db.fetchAppointments(),
+              db.fetchClients(),
+              db.fetchServices(),
+              db.fetchTransactions(),
+              db.fetchPolishes(),
+            ]);
 
           setAppointments(remoteApts || []);
           setClients(remoteClients || []);
           if (remoteServices && remoteServices.length > 0) setServices(remoteServices);
           setTransactions(remoteTxs || []);
+          setPolishes(remotePolishes || []);
         }
       }
     }
@@ -173,10 +173,6 @@ function AppContent() {
   useEffect(() => {
     localStorage.setItem('kethelin_transactions_v2', JSON.stringify(transactions));
   }, [transactions]);
-
-  useEffect(() => {
-    localStorage.setItem('kethelin_polishes_v1', JSON.stringify(polishes));
-  }, [polishes]);
 
   // Read URL for client portal, manicure direct link or /admin (superadmin)
   useEffect(() => {
@@ -328,12 +324,14 @@ function AppContent() {
   // painel normal em modo somente leitura. A sessão de autenticação continua
   // sendo a do superadmin — não há troca de usuário no Supabase Auth.
   const handleImpersonate = async (target: AdminSalon): Promise<boolean> => {
-    const [remoteApts, remoteClients, remoteServices, remoteTx] = await Promise.all([
-      db.fetchAppointments(target.id),
-      db.fetchClients(target.id),
-      db.fetchServices(target.id),
-      db.fetchTransactions(target.id),
-    ]);
+    const [remoteApts, remoteClients, remoteServices, remoteTx, remotePolishes] =
+      await Promise.all([
+        db.fetchAppointments(target.id),
+        db.fetchClients(target.id),
+        db.fetchServices(target.id),
+        db.fetchTransactions(target.id),
+        db.fetchPolishes(target.id),
+      ]);
 
     if (!remoteApts || !remoteClients || !remoteServices || !remoteTx) {
       return false;
@@ -343,6 +341,7 @@ function AppContent() {
     setClients(remoteClients);
     setServices(remoteServices);
     setTransactions(remoteTx);
+    setPolishes(remotePolishes || []);
     setCurrentSalonId(target.id);
     setImpersonatedSalon(target);
     setCurrentTab('agenda');
@@ -361,21 +360,25 @@ function AppContent() {
     setCurrentSalonId(salon?.id ?? null);
 
     if (salon?.id) {
-      const [remoteApts, remoteClients, remoteServices, remoteTx] = await Promise.all([
-        db.fetchAppointments(salon.id),
-        db.fetchClients(salon.id),
-        db.fetchServices(salon.id),
-        db.fetchTransactions(salon.id),
-      ]);
+      const [remoteApts, remoteClients, remoteServices, remoteTx, remotePolishes] =
+        await Promise.all([
+          db.fetchAppointments(salon.id),
+          db.fetchClients(salon.id),
+          db.fetchServices(salon.id),
+          db.fetchTransactions(salon.id),
+          db.fetchPolishes(salon.id),
+        ]);
       if (remoteApts) setAppointments(remoteApts);
       if (remoteClients) setClients(remoteClients);
       if (remoteServices) setServices(remoteServices);
       if (remoteTx) setTransactions(remoteTx);
+      setPolishes(remotePolishes || []);
     } else {
       setAppointments([]);
       setClients([]);
       setServices([]);
       setTransactions([]);
+      setPolishes([]);
     }
 
     changeViewMode('admin');
@@ -625,24 +628,48 @@ function AppContent() {
     showToast('Lançamento removido.');
   };
 
-  // Handlers for Polishes
-  const handleAddPolish = (polish: PolishItem) => {
-    if (blockIfImpersonating()) return;
-    setPolishes((prev) => [polish, ...prev]);
+  // Handlers for Polishes (tabela `esmaltes`)
+  const handleAddPolish = async (draft: PolishDraft): Promise<boolean> => {
+    if (blockIfImpersonating()) return false;
+    if (!isSupabaseConfigured) {
+      showToast('Supabase não está configurado: não foi possível salvar o esmalte.');
+      return false;
+    }
+
+    const newPolish: PolishItem = {
+      id:
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `pol-${Date.now()}`,
+      salonId: salonId || undefined,
+      name: draft.name,
+      brand: draft.brand,
+      colorHex: draft.colorHex,
+    };
+
+    const saved = await db.savePolish(newPolish);
+    if (!saved) {
+      showToast('Erro ao salvar o esmalte. Tente novamente.');
+      return false;
+    }
+
+    setPolishes((prev) => [newPolish, ...prev]);
     showToast('Esmalte cadastrado na esmalteca!');
+    return true;
   };
 
-  const handleToggleStockPolish = (id: string) => {
-    if (blockIfImpersonating()) return;
-    setPolishes((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, inStock: !p.inStock } : p))
-    );
-  };
+  const handleDeletePolish = async (id: string): Promise<boolean> => {
+    if (blockIfImpersonating()) return false;
 
-  const handleDeletePolish = (id: string) => {
-    if (blockIfImpersonating()) return;
+    const removed = await db.deletePolish(id);
+    if (!removed) {
+      showToast('Erro ao excluir o esmalte. Tente novamente.');
+      return false;
+    }
+
     setPolishes((prev) => prev.filter((p) => p.id !== id));
     showToast('Esmalte removido da esmalteca.');
+    return true;
   };
 
   // Reset to initial sample data helper
@@ -657,7 +684,7 @@ function AppContent() {
       setClients(INITIAL_CLIENTS);
       setServices(INITIAL_SERVICES);
       setTransactions(INITIAL_TRANSACTIONS);
-      setPolishes(INITIAL_POLISHES);
+      setPolishes([]);
       localStorage.clear();
       showToast('Dados restaurados com sucesso!');
     }
@@ -734,9 +761,15 @@ function AppContent() {
           clients={clients}
           salon={
             impersonatedSalon
-              ? { id: impersonatedSalon.id, name: impersonatedSalon.nome }
+              ? { id: impersonatedSalon.id, name: impersonatedSalon.nome, phone: impersonatedSalon.phone }
               : salon
-                ? { id: salon.id, name: salon.name, logoUrl: salon.logoUrl }
+                ? {
+                    id: salon.id,
+                    name: salon.name,
+                    logoUrl: salon.logoUrl,
+                    phone: salon.phone,
+                    address: salon.address,
+                  }
                 : null
           }
           salonId={impersonatedSalon?.id || salon?.id || publicSalonId || undefined}
@@ -933,7 +966,6 @@ function AppContent() {
               <PolishStudioView
                 polishes={polishes}
                 onAddPolish={handleAddPolish}
-                onToggleStock={handleToggleStockPolish}
                 onDeletePolish={handleDeletePolish}
               />
             )}
