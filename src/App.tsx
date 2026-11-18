@@ -42,6 +42,19 @@ import {
 
 export type AppViewMode = 'landing' | 'client_portal' | 'manicure_panel' | 'admin';
 
+/** Rota limpa do portal: /cliente/<slug>. Sem React Router, lida no boot. */
+const CLIENT_PORTAL_PATH = /^\/cliente\/([^/]+)\/?$/i;
+
+function readClientSlugFromPath(pathname: string): string {
+  const match = pathname.match(CLIENT_PORTAL_PATH);
+  if (!match) return '';
+  try {
+    return decodeURIComponent(match[1]).trim();
+  } catch {
+    return match[1].trim();
+  }
+}
+
 /**
  * AppContent consome o contexto do salão (useSalon) e contém toda a lógica
  * de navegação, persistência e handlers de negócio. Ele é renderizado dentro
@@ -61,11 +74,15 @@ function AppContent() {
   } = useSalon();
 
   // App View Modes
-  const [viewMode, setViewMode] = useState<AppViewMode>('landing');
+  const [viewMode, setViewMode] = useState<AppViewMode>(() =>
+    readClientSlugFromPath(window.location.pathname) ? 'client_portal' : 'landing'
+  );
   const [selectedServiceForBooking, setSelectedServiceForBooking] = useState<string | undefined>(undefined);
-  // Salão identificado no link público (?slug=... ou ?salao=<id> legado).
+  // Salão do link público: rota limpa /cliente/<slug> ou ?salao=<id> legado.
   const [publicSalonId, setPublicSalonId] = useState<string>('');
-  const [publicSalonSlug, setPublicSalonSlug] = useState<string>('');
+  const [publicSalonSlug, setPublicSalonSlug] = useState<string>(() =>
+    readClientSlugFromPath(window.location.pathname)
+  );
 
   // Manicure Panel Sub-Navigation
   const [currentTab, setCurrentTab] = useState<TabType>('agenda');
@@ -175,13 +192,14 @@ function AppContent() {
     localStorage.setItem('kethelin_transactions_v2', JSON.stringify(transactions));
   }, [transactions]);
 
-  // Read URL for client portal, manicure direct link or /admin (superadmin)
+  // Lê a URL: rota limpa /cliente/<slug>, ?p=cliente, link da manicure e /admin.
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const portal = urlParams.get('p') || urlParams.get('portal');
     const isAdminPath = window.location.pathname.replace(/\/+$/, '') === '/admin';
     const salao = (urlParams.get('salao') || urlParams.get('salon') || '').trim();
-    const slug = (urlParams.get('slug') || '').trim();
+    const pathSlug = readClientSlugFromPath(window.location.pathname);
+    const slug = (pathSlug || urlParams.get('slug') || '').trim();
     setPublicSalonId(salao);
     setPublicSalonSlug(slug);
 
@@ -190,7 +208,7 @@ function AppContent() {
       return;
     }
 
-    if (portal === 'cliente' || portal === 'agendar' || portal === 'client') {
+    if (pathSlug || portal === 'cliente' || portal === 'agendar' || portal === 'client') {
       setViewMode('client_portal');
     } else if (portal === 'manicure') {
       if (isManicureAuthenticated) {
@@ -209,31 +227,42 @@ function AppContent() {
     setViewMode(mode);
     const url = new URL(window.location.href);
     const isAdminPath = url.pathname.replace(/\/+$/, '') === '/admin';
+    const isClientPath = Boolean(readClientSlugFromPath(url.pathname));
 
     if (mode === 'admin') {
       url.pathname = '/admin';
       url.searchParams.delete('p');
       url.searchParams.delete('portal');
+      url.searchParams.delete('slug');
+      url.searchParams.delete('salao');
     } else {
-      if (isAdminPath) url.pathname = '/';
+      // Sai da rota limpa do portal antes de qualquer outro destino.
+      if (isAdminPath || isClientPath) url.pathname = '/';
       if (mode === 'client_portal') {
-        url.searchParams.set('p', 'cliente');
         const brandSlug = impersonatedSalon?.slug || salon?.slug || publicSalonSlug;
         const brandId = impersonatedSalon?.id || salon?.id || publicSalonId;
         if (brandSlug) {
-          url.searchParams.set('slug', brandSlug);
+          // Rota limpa: /cliente/<slug> (vercel.json reescreve para index.html).
+          url.pathname = `/cliente/${encodeURIComponent(brandSlug)}`;
+          url.searchParams.delete('p');
+          url.searchParams.delete('portal');
+          url.searchParams.delete('slug');
           url.searchParams.delete('salao');
           setPublicSalonSlug(brandSlug);
         } else if (brandId) {
+          url.searchParams.set('p', 'cliente');
           url.searchParams.set('salao', brandId);
           url.searchParams.delete('slug');
           setPublicSalonId(brandId);
         } else {
+          url.searchParams.set('p', 'cliente');
           url.searchParams.delete('salao');
           url.searchParams.delete('slug');
         }
       } else if (mode === 'manicure_panel') {
         url.searchParams.set('p', 'manicure');
+        url.searchParams.delete('slug');
+        url.searchParams.delete('salao');
       } else {
         url.searchParams.delete('p');
         url.searchParams.delete('portal');
@@ -268,6 +297,8 @@ function AppContent() {
       url.pathname = '/admin';
       url.searchParams.delete('p');
       url.searchParams.delete('portal');
+      url.searchParams.delete('slug');
+      url.searchParams.delete('salao');
       window.history.replaceState(null, '', url.toString());
       showToast('Login realizado. Verificando permissões...');
       return;
@@ -282,7 +313,10 @@ function AppContent() {
 
     setViewMode('manicure_panel');
     const url = new URL(window.location.href);
+    url.pathname = '/';
     url.searchParams.set('p', 'manicure');
+    url.searchParams.delete('slug');
+    url.searchParams.delete('salao');
     window.history.replaceState(null, '', url.toString());
     showToast('Acesso autorizado! Bem-vinda ao painel da manicure.');
   };
@@ -364,6 +398,8 @@ function AppContent() {
     const url = new URL(window.location.href);
     url.pathname = '/';
     url.searchParams.set('p', 'manicure');
+    url.searchParams.delete('slug');
+    url.searchParams.delete('salao');
     window.history.replaceState(null, '', url.toString());
     showToast(`Visualizando ${target.nome} — modo somente leitura.`);
     return true;

@@ -153,25 +153,20 @@ function mapPublicSalonBranding(
   data: unknown,
   fallbackId: string
 ): PublicSalonBranding | null {
-  const row = (Array.isArray(data) ? data[0] : data) as
-    | {
-        salon_id?: string;
-        name?: string;
-        logo_url?: string;
-        phone?: string;
-        address?: string;
-      }
-    | null;
+  const raw = Array.isArray(data) ? data[0] : data;
+  if (!raw || typeof raw !== 'object') return null;
 
-  if (!row) return null;
-
-  const name = typeof row.name === 'string' ? row.name.trim() : '';
-  const logoUrl = typeof row.logo_url === 'string' ? row.logo_url.trim() : '';
-  const phone = typeof row.phone === 'string' ? row.phone.trim() : '';
-  const address = typeof row.address === 'string' ? row.address.trim() : '';
+  // A RPC pode devolver os 5 campos da migração (`name`, `phone`, ...) ou a
+  // linha do salão com as grafias pt-BR (`nome`, `telefone`, `endereco`, ...).
+  const row = raw as DbRow;
+  const name = readDbString(row, ['name', 'nome']) ?? '';
+  const logoUrl = readDbString(row, ['logo_url']) ?? '';
+  const phone =
+    readDbString(row, ['phone', 'telefone', 'whatsapp', 'celular']) ?? '';
+  const address = readDbString(row, ['address', 'endereco']) ?? '';
 
   return {
-    id: row.salon_id ? String(row.salon_id) : fallbackId,
+    id: readDbString(row, ['salon_id', 'id']) ?? fallbackId,
     name: name || 'Lume Nails',
     logoUrl: logoUrl || undefined,
     phone: phone || undefined,

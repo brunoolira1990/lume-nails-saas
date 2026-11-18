@@ -1,9 +1,16 @@
 -- Identidade pública do salão (Portal da Cliente) — busca por slug.
 -- Mesmos campos da RPC por id (20261122_public_salon_branding_contact.sql),
 -- porém localizando o salão pela coluna `slug` (migration 20261116_salon_slug).
--- Assim o link público fica legível: ?p=cliente&slug=studio-de-teste
+-- Assim o link público fica legível: /cliente/studio-de-teste
+--
+-- IMPORTANTE: o `drop` existe porque uma versão anterior desta função pode
+-- devolver a linha inteira de `salons` (e-mail, owner_id, status...). Trocar
+-- apenas com `create or replace` falha quando o tipo de retorno muda; com o
+-- drop a função passa a expor somente nome, logo, telefone e endereço.
 
-create or replace function public.public_salon_branding_by_slug(salon_slug text)
+drop function if exists public.public_salon_branding_by_slug(text);
+
+create function public.public_salon_branding_by_slug(salon_slug text)
 returns table (salon_id text, name text, logo_url text, phone text, address text)
 language sql
 stable
