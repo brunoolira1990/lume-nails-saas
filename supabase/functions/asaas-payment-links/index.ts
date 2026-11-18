@@ -152,7 +152,9 @@ function buildLinkPayload(plan: PlanConfig): Record<string, unknown> {
     name: `Lume Nails — Plano ${plan.label}`,
     description: `Assinatura mensal do Lume Nails, plano ${plan.label}.`,
     value: plan.price,
+    // Permite boleto: o Asaas exige a janela de dias úteis para vencimento.
     billingType: 'UNDEFINED',
+    dueDateLimitDays: 10,
     chargeType: 'RECURRENT',
     subscriptionCycle: 'MONTHLY',
     externalReference: `lume-plano-${plan.id}`,
