@@ -4,7 +4,9 @@ import { Share2, Copy, Check, QrCode, MessageCircle, ExternalLink, X, Sparkles, 
 interface ShareClientLinkModalProps {
   isOpen: boolean;
   onClose: () => void;
-  /** Salão logado: entra no link para o portal abrir com a marca dele. */
+  /** Slug público do salão: entra no link para o portal abrir com a marca dele. */
+  salonSlug?: string;
+  /** Fallback para salões antigos que ainda não têm slug cadastrado. */
   salonId?: string;
   studioName?: string;
 }
@@ -12,6 +14,7 @@ interface ShareClientLinkModalProps {
 export const ShareClientLinkModal: React.FC<ShareClientLinkModalProps> = ({
   isOpen,
   onClose,
+  salonSlug,
   salonId,
   studioName,
 }) => {
@@ -22,13 +25,19 @@ export const ShareClientLinkModal: React.FC<ShareClientLinkModalProps> = ({
 
   const studio = studioName?.trim() || 'Lume Nails';
 
-  // Construct client portal sharing URL (com o salão, quando logada).
+  // Construct client portal sharing URL (slug do salão; id só como fallback).
   const shareUrl = new URL(`${window.location.origin}${window.location.pathname}`);
   shareUrl.searchParams.set('p', 'cliente');
+  const trimmedSlug = salonSlug?.trim() ?? '';
   const trimmedSalonId = salonId?.trim() ?? '';
-  if (trimmedSalonId) {
+  if (trimmedSlug) {
+    shareUrl.searchParams.set('slug', trimmedSlug);
+    shareUrl.searchParams.delete('salao');
+  } else if (trimmedSalonId) {
+    shareUrl.searchParams.delete('slug');
     shareUrl.searchParams.set('salao', trimmedSalonId);
   } else {
+    shareUrl.searchParams.delete('slug');
     shareUrl.searchParams.delete('salao');
   }
   const shareableUrl = shareUrl.toString();
@@ -140,6 +149,12 @@ export const ShareClientLinkModal: React.FC<ShareClientLinkModalProps> = ({
                 )}
               </button>
             </div>
+            {!trimmedSlug && trimmedSalonId && (
+              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-800">
+                Este salão ainda não tem slug público cadastrado, então o link usa o identificador
+                interno. Cadastre o slug do salão para deixar a URL amigável.
+              </p>
+            )}
           </div>
 
           {/* Quick Sharing Action Buttons */}

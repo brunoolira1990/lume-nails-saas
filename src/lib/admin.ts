@@ -19,6 +19,8 @@ export interface AdminSalon {
   id: string;
   /** `salons.nome` (ou `salons.name` em bancos com schema em inglês). */
   nome: string;
+  /** Slug público usado nos links da cliente. */
+  slug?: string;
   email?: string;
   phone?: string;
   plan: SalonPlan;
@@ -66,6 +68,7 @@ function mapSalonRow(row: DbRow): AdminSalon {
   return {
     id: readDbString(row, ['id']) ?? '',
     nome: readDbString(row, SALON_NAME_KEYS) ?? 'Salão sem nome',
+    slug: readDbString(row, ['slug']),
     email: readDbString(row, SALON_EMAIL_KEYS),
     phone: readDbString(row, SALON_PHONE_KEYS),
     plan: normalizeSalonPlan(readDbValue(row, SALON_PLAN_KEYS)),

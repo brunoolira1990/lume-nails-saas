@@ -63,8 +63,9 @@ function AppContent() {
   // App View Modes
   const [viewMode, setViewMode] = useState<AppViewMode>('landing');
   const [selectedServiceForBooking, setSelectedServiceForBooking] = useState<string | undefined>(undefined);
-  // Salão identificado no link público (?salao=...), usado no portal sem login.
+  // Salão identificado no link público (?slug=... ou ?salao=<id> legado).
   const [publicSalonId, setPublicSalonId] = useState<string>('');
+  const [publicSalonSlug, setPublicSalonSlug] = useState<string>('');
 
   // Manicure Panel Sub-Navigation
   const [currentTab, setCurrentTab] = useState<TabType>('agenda');
@@ -180,7 +181,9 @@ function AppContent() {
     const portal = urlParams.get('p') || urlParams.get('portal');
     const isAdminPath = window.location.pathname.replace(/\/+$/, '') === '/admin';
     const salao = (urlParams.get('salao') || urlParams.get('salon') || '').trim();
+    const slug = (urlParams.get('slug') || '').trim();
     setPublicSalonId(salao);
+    setPublicSalonSlug(slug);
 
     if (isAdminPath || portal === 'admin') {
       setViewMode('admin');
@@ -215,18 +218,27 @@ function AppContent() {
       if (isAdminPath) url.pathname = '/';
       if (mode === 'client_portal') {
         url.searchParams.set('p', 'cliente');
+        const brandSlug = impersonatedSalon?.slug || salon?.slug || publicSalonSlug;
         const brandId = impersonatedSalon?.id || salon?.id || publicSalonId;
-        if (brandId) {
+        if (brandSlug) {
+          url.searchParams.set('slug', brandSlug);
+          url.searchParams.delete('salao');
+          setPublicSalonSlug(brandSlug);
+        } else if (brandId) {
           url.searchParams.set('salao', brandId);
+          url.searchParams.delete('slug');
           setPublicSalonId(brandId);
         } else {
           url.searchParams.delete('salao');
+          url.searchParams.delete('slug');
         }
       } else if (mode === 'manicure_panel') {
         url.searchParams.set('p', 'manicure');
       } else {
         url.searchParams.delete('p');
         url.searchParams.delete('portal');
+        url.searchParams.delete('slug');
+        url.searchParams.delete('salao');
       }
     }
     window.history.replaceState(null, '', url.toString());
@@ -282,6 +294,8 @@ function AppContent() {
     const url = new URL(window.location.href);
     url.pathname = '/';
     url.searchParams.delete('p');
+    url.searchParams.delete('slug');
+    url.searchParams.delete('salao');
     window.history.replaceState(null, '', url.toString());
     showToast('Você saiu do painel da manicure.');
   };
@@ -773,6 +787,7 @@ function AppContent() {
                 : null
           }
           salonId={impersonatedSalon?.id || salon?.id || publicSalonId || undefined}
+          salonSlug={impersonatedSalon?.slug || salon?.slug || publicSalonSlug || undefined}
           initialSelectedServiceId={selectedServiceForBooking}
           onBookAppointment={handleClientSelfBooking}
           onBackToHome={() => changeViewMode('landing')}
@@ -1032,6 +1047,7 @@ function AppContent() {
       <ShareClientLinkModal
         isOpen={isShareClientLinkModalOpen}
         onClose={() => setIsShareClientLinkModalOpen(false)}
+        salonSlug={impersonatedSalon?.slug || salon?.slug || publicSalonSlug || undefined}
         salonId={impersonatedSalon?.id || salon?.id || publicSalonId || undefined}
         studioName={impersonatedSalon?.nome || salon?.name}
       />

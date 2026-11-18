@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Appointment, Client, Salon, ServiceItem } from '../types';
 import { formatCurrency, formatDateBR, getWhatsAppUrl } from '../utils/formatters';
-import { fetchPublicSalonBranding } from '../lib/supabase';
+import { fetchPublicSalonBranding, fetchPublicSalonBrandingBySlug } from '../lib/supabase';
 import { BrandLogo } from './BrandLogo';
 import {
   Calendar,
@@ -25,7 +25,9 @@ interface ClientPortalViewProps {
   clients: Client[];
   /** Salão da sessão logada (nome/logo/contato exibidos no portal). */
   salon?: Pick<Salon, 'id' | 'name' | 'logoUrl' | 'phone' | 'address'> | null;
-  /** Salão identificado no link público (?salao=...), para visitantes sem login. */
+  /** Salão identificado no link público (?slug=...), para visitantes sem login. */
+  salonSlug?: string;
+  /** Compatibilidade com links antigos (?salao=<id>). */
   salonId?: string;
   initialSelectedServiceId?: string;
   onBookAppointment: (appointment: Appointment, clientData: Partial<Client>) => void;
@@ -40,6 +42,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
   clients,
   salon,
   salonId,
+  salonSlug,
   initialSelectedServiceId,
   onBookAppointment,
   onBackToHome,
@@ -73,14 +76,20 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
       return;
     }
 
+    const slug = salonSlug?.trim();
     const id = salonId?.trim();
-    if (!id) {
+    const request = slug
+      ? fetchPublicSalonBrandingBySlug(slug)
+      : id
+        ? fetchPublicSalonBranding(id)
+        : null;
+    if (!request) {
       setBranding(null);
       return;
     }
 
     let active = true;
-    void fetchPublicSalonBranding(id).then((result) => {
+    void request.then((result) => {
       if (!active || !result) return;
       setBranding({
         name: result.name,
@@ -93,12 +102,31 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
     return () => {
       active = false;
     };
-  }, [salon?.name, salon?.logoUrl, salon?.phone, salon?.address, salonId]);
+  }, [salon?.name, salon?.logoUrl, salon?.phone, salon?.address, salonId, salonSlug]);
 
   const studioName = branding?.name?.trim() || 'Lume Nails';
   const studioLogoUrl = branding?.logoUrl;
   const studioAddress = branding?.address?.trim() || '';
   const studioPhone = branding?.phone?.trim() || '';
+
+  // Título da aba e descrição com a marca do salão (não o nome técnico do app).
+  useEffect(() => {
+    const brand = branding?.name?.trim();
+    if (!brand) return;
+
+    const previousTitle = document.title;
+    const meta = document.querySelector('meta[name="description"]');
+    const previousDescription = meta?.getAttribute('content') ?? null;
+    const description = `Agende seu horário na ${brand} pelo portal online: procedimentos, horários, cartão fidelidade e dicas de cuidados.`;
+
+    document.title = `${brand} - Lume Nails`;
+    if (meta) meta.setAttribute('content', description);
+
+    return () => {
+      document.title = previousTitle;
+      if (meta && previousDescription !== null) meta.setAttribute('content', previousDescription);
+    };
+  }, [branding?.name]);
   const studioWhatsAppUrl = (text: string) =>
     studioPhone ? getWhatsAppUrl(studioPhone, text) : '';
   const studioReviewsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(

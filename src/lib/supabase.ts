@@ -149,6 +149,36 @@ export interface PublicSalonBranding {
   address?: string;
 }
 
+function mapPublicSalonBranding(
+  data: unknown,
+  fallbackId: string
+): PublicSalonBranding | null {
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | {
+        salon_id?: string;
+        name?: string;
+        logo_url?: string;
+        phone?: string;
+        address?: string;
+      }
+    | null;
+
+  if (!row) return null;
+
+  const name = typeof row.name === 'string' ? row.name.trim() : '';
+  const logoUrl = typeof row.logo_url === 'string' ? row.logo_url.trim() : '';
+  const phone = typeof row.phone === 'string' ? row.phone.trim() : '';
+  const address = typeof row.address === 'string' ? row.address.trim() : '';
+
+  return {
+    id: row.salon_id ? String(row.salon_id) : fallbackId,
+    name: name || 'Lume Nails',
+    logoUrl: logoUrl || undefined,
+    phone: phone || undefined,
+    address: address || undefined,
+  };
+}
+
 export async function fetchPublicSalonBranding(
   salonId: string
 ): Promise<PublicSalonBranding | null> {
@@ -166,24 +196,32 @@ export async function fetchPublicSalonBranding(
       return null;
     }
 
-    const row = (Array.isArray(data) ? data[0] : data) as
-      | { salon_id?: string; name?: string; logo_url?: string; phone?: string; address?: string }
-      | null;
+    return mapPublicSalonBranding(data, id);
+  } catch (error) {
+    console.warn('Aviso: falha ao carregar a identidade pública do salão.', error);
+    return null;
+  }
+}
 
-    if (!row) return null;
+/** Igual a `fetchPublicSalonBranding`, mas localiza o salão pelo slug público. */
+export async function fetchPublicSalonBrandingBySlug(
+  salonSlug: string
+): Promise<PublicSalonBranding | null> {
+  if (!supabase) return null;
+  const slug = salonSlug.trim();
+  if (!slug) return null;
 
-    const name = typeof row.name === 'string' ? row.name.trim() : '';
-    const logoUrl = typeof row.logo_url === 'string' ? row.logo_url.trim() : '';
-    const phone = typeof row.phone === 'string' ? row.phone.trim() : '';
-    const address = typeof row.address === 'string' ? row.address.trim() : '';
+  try {
+    const { data, error } = await supabase.rpc('public_salon_branding_by_slug', {
+      salon_slug: slug,
+    });
 
-    return {
-      id: row.salon_id ? String(row.salon_id) : id,
-      name: name || 'Lume Nails',
-      logoUrl: logoUrl || undefined,
-      phone: phone || undefined,
-      address: address || undefined,
-    };
+    if (error) {
+      console.warn(`Aviso: branding público por slug indisponível (${error.message}).`);
+      return null;
+    }
+
+    return mapPublicSalonBranding(data, slug);
   } catch (error) {
     console.warn('Aviso: falha ao carregar a identidade pública do salão.', error);
     return null;
@@ -217,6 +255,7 @@ function mapSalonFromDb(r: DbRow): Salon {
   return {
     id: readDbString(r, ['id']) ?? '',
     name: readDbString(r, SALON_NAME_KEYS) ?? '',
+    slug: readDbString(r, ['slug']),
     email: readDbString(r, SALON_EMAIL_KEYS),
     phone: readDbString(r, SALON_PHONE_KEYS),
     address: readDbString(r, SALON_ADDRESS_KEYS),

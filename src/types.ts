@@ -13,6 +13,8 @@ export type SalonStatus = 'ativo' | 'inadimplente' | 'inativo';
 export interface Salon {
   id: string;
   name: string;
+  /** Slug público do salão (ex: studio-de-teste), usado nos links da cliente. */
+  slug?: string;
   email?: string;
   phone?: string;
   address?: string;
