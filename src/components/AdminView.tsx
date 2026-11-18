@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Loader2,
   MoreHorizontal,
+  Pencil,
   RefreshCw,
   RotateCcw,
   Search,
@@ -20,6 +21,7 @@ import {
   Store,
   TrendingDown,
   TrendingUp,
+  Upload,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -55,12 +57,16 @@ import {
   type AdminSalon,
   fetchAllSalons,
   formatBRL,
+  LOGO_MIME_TYPES,
+  MAX_LOGO_BYTES,
   PLAN_LABELS,
   PLAN_PRICES,
   sendOwnerPasswordReset,
   setSalonPlan,
   setSalonStatus,
   STATUS_LABELS,
+  updateSalonProfile,
+  uploadSalonLogo,
 } from '../lib/admin';
 import {
   EMPTY_SAAS_SETTINGS,
@@ -174,6 +180,17 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
   const [query, setQuery] = useState('');
   const [paymentsSalon, setPaymentsSalon] = useState<AdminSalon | null>(null);
 
+  const [editSalon, setEditSalon] = useState<AdminSalon | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  const logoObjectUrl = useRef<string | null>(null);
+
   const [settings, setSettings] = useState<SaasSettings>(EMPTY_SAAS_SETTINGS);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
@@ -194,6 +211,13 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
   useEffect(() => {
     void loadSalons();
   }, [loadSalons]);
+
+  useEffect(() => {
+    // Libera o blob do preview se o modal for desmontado com arquivo pendente.
+    return () => {
+      if (logoObjectUrl.current) URL.revokeObjectURL(logoObjectUrl.current);
+    };
+  }, []);
 
   const loadSettings = useCallback(async () => {
     setSettingsLoading(true);
@@ -368,6 +392,117 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
       kind: 'success',
       message: `Se houver uma conta cadastrada para ${salon.email}, o e-mail de redefinição de senha foi enviado.`,
     });
+  };
+
+  const releaseLogoPreview = () => {
+    if (logoObjectUrl.current) {
+      URL.revokeObjectURL(logoObjectUrl.current);
+      logoObjectUrl.current = null;
+    }
+  };
+
+  const closeEditSalon = () => {
+    releaseLogoPreview();
+    setEditSalon(null);
+    setLogoFile(null);
+    setLogoPreview(null);
+    setEditError(null);
+    setEditSaving(false);
+  };
+
+  const openEditSalon = (salon: AdminSalon) => {
+    releaseLogoPreview();
+    setEditSalon(salon);
+    setEditName(salon.nome);
+    setEditPhone(salon.phone ?? '');
+    setEditAddress(salon.address ?? '');
+    setLogoFile(null);
+    setLogoPreview(salon.logoUrl ?? null);
+    setEditError(null);
+  };
+
+  const handleLogoPicked = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    // Permite escolher o mesmo arquivo novamente depois de um erro.
+    event.target.value = '';
+    if (!file) return;
+
+    const allowedTypes: readonly string[] = LOGO_MIME_TYPES;
+    if (!allowedTypes.includes(file.type)) {
+      setEditError('Envie uma imagem PNG, JPEG ou WebP.');
+      return;
+    }
+
+    if (file.size > MAX_LOGO_BYTES) {
+      setEditError('A imagem deve ter no máximo 2 MB.');
+      return;
+    }
+
+    releaseLogoPreview();
+    const objectUrl = URL.createObjectURL(file);
+    logoObjectUrl.current = objectUrl;
+    setLogoFile(file);
+    setLogoPreview(objectUrl);
+    setEditError(null);
+  };
+
+  const handleSaveSalon = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editSalon || editSaving) return;
+
+    const nome = editName.trim();
+    if (!nome) {
+      setEditError('Informe o nome do salão.');
+      return;
+    }
+
+    setEditSaving(true);
+    setEditError(null);
+
+    let logoUrl = editSalon.logoUrl ?? '';
+
+    if (logoFile) {
+      const upload = await uploadSalonLogo(editSalon.id, logoFile);
+      if (upload.error || !upload.url) {
+        setEditSaving(false);
+        setEditError(upload.error ?? 'Não foi possível enviar o logo.');
+        return;
+      }
+      logoUrl = upload.url;
+    }
+
+    const phone = editPhone.trim();
+    const address = editAddress.trim();
+    const { error } = await updateSalonProfile(editSalon.id, {
+      nome,
+      phone,
+      address,
+      logoUrl,
+    });
+
+    if (error) {
+      setEditSaving(false);
+      setEditError(error);
+      return;
+    }
+
+    const salonId = editSalon.id;
+    setSalons((prev) =>
+      prev.map((item) =>
+        item.id === salonId
+          ? {
+              ...item,
+              nome,
+              phone: phone || undefined,
+              address: address || undefined,
+              logoUrl: logoUrl || undefined,
+            }
+          : item
+      )
+    );
+    setEditSaving(false);
+    setFeedback({ kind: 'success', message: `Dados de ${nome} atualizados.` });
+    closeEditSalon();
   };
 
   const updateSettings = (field: keyof SaasSettings, value: string) => {
@@ -914,6 +1049,16 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
                                     <DropdownMenuContent align="end" className="w-60">
                                       <DropdownMenuLabel>{salon.nome}</DropdownMenuLabel>
 
+                                      <DropdownMenuItem
+                                        onSelect={() => openEditSalon(salon)}
+                                        disabled={isBusy}
+                                      >
+                                        <Pencil />
+                                        Editar salão
+                                      </DropdownMenuItem>
+
+                                      <DropdownMenuSeparator />
+
                                       <DropdownMenuSub>
                                         <DropdownMenuSubTrigger disabled={isBusy}>
                                           <CreditCard />
@@ -1244,6 +1389,149 @@ export const AdminView: React.FC<AdminViewProps> = ({ onBackToPanel, onImpersona
               Fechar
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={editSalon !== null}
+        onOpenChange={(open) => {
+          if (!open) closeEditSalon();
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar salão</DialogTitle>
+            <DialogDescription>
+              Nome, telefone, endereço e logo aparecem no portal público da cliente.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveSalon} className="mt-5 space-y-4">
+            <div className="flex items-center gap-4">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50">
+                {logoPreview ? (
+                  <img
+                    src={logoPreview}
+                    alt={`Logo de ${editName || 'salão'}`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <Store className="h-6 w-6 text-zinc-400" />
+                )}
+              </div>
+              <div className="min-w-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-xl border-zinc-300 bg-white text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={editSaving}
+                >
+                  <Upload className="mr-1.5 h-4 w-4" />
+                  {logoPreview ? 'Trocar logo' : 'Enviar logo'}
+                </Button>
+                <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">
+                  PNG, JPEG ou WebP, até 2 MB.
+                </p>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept={LOGO_MIME_TYPES.join(',')}
+                  className="hidden"
+                  onChange={handleLogoPicked}
+                  disabled={editSaving}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label
+                htmlFor="edit-salon-name"
+                className="text-xs font-semibold text-zinc-800"
+              >
+                Nome do salão
+              </Label>
+              <Input
+                id="edit-salon-name"
+                value={editName}
+                onChange={(event) => setEditName(event.target.value)}
+                placeholder="Studio de beleza"
+                className="h-10 rounded-xl border-zinc-300 bg-white"
+                required
+                disabled={editSaving}
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="edit-salon-phone"
+                  className="text-xs font-semibold text-zinc-800"
+                >
+                  Telefone
+                </Label>
+                <Input
+                  id="edit-salon-phone"
+                  value={editPhone}
+                  onChange={(event) => setEditPhone(event.target.value)}
+                  placeholder="(11) 99999-9999"
+                  inputMode="tel"
+                  className="h-10 rounded-xl border-zinc-300 bg-white"
+                  disabled={editSaving}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label
+                  htmlFor="edit-salon-address"
+                  className="text-xs font-semibold text-zinc-800"
+                >
+                  Endereço
+                </Label>
+                <Input
+                  id="edit-salon-address"
+                  value={editAddress}
+                  onChange={(event) => setEditAddress(event.target.value)}
+                  placeholder="Rua, número, bairro"
+                  className="h-10 rounded-xl border-zinc-300 bg-white"
+                  disabled={editSaving}
+                />
+              </div>
+            </div>
+
+            {editError && (
+              <p
+                role="alert"
+                className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700"
+              >
+                {editError}
+              </p>
+            )}
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 rounded-xl border-zinc-300 bg-white text-sm font-semibold text-zinc-700 hover:bg-zinc-50"
+                onClick={closeEditSalon}
+                disabled={editSaving}
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                className="h-9 rounded-xl bg-zinc-900 px-4 text-sm font-semibold text-white shadow-sm hover:bg-zinc-800"
+                disabled={editSaving}
+              >
+                {editSaving ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="mr-1.5 h-4 w-4" />
+                )}
+                Salvar alterações
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
     </div>

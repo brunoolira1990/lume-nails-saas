@@ -1,8 +1,10 @@
 import { supabase } from './supabase';
 import type { SalonPlan, SalonStatus } from '../types';
 import {
+  SALON_ADDRESS_KEYS,
   SALON_CREATED_AT_KEYS,
   SALON_EMAIL_KEYS,
+  SALON_LOGO_KEYS,
   SALON_NAME_KEYS,
   SALON_OWNER_KEYS,
   SALON_PHONE_KEYS,
@@ -23,11 +25,30 @@ export interface AdminSalon {
   slug?: string;
   email?: string;
   phone?: string;
+  address?: string;
+  logoUrl?: string;
   plan: SalonPlan;
   status: SalonStatus;
   ownerId?: string;
   createdAt?: string;
 }
+
+/** Campos editáveis pelo superadmin no modal "Editar salão". */
+export interface SalonProfileUpdate {
+  nome: string;
+  phone: string;
+  address: string;
+  /** URL pública do logo no bucket `logos`. Vazio preserva o logo atual. */
+  logoUrl: string;
+}
+
+/** Bucket público do Supabase Storage usado para os logos dos salões. */
+export const SALON_LOGO_BUCKET = 'logos';
+
+/** 2 MB — mesmo limite configurado no bucket pela migração. */
+export const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+
+export const LOGO_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
 
 export interface AdminSalonListResult {
   salons: AdminSalon[];
@@ -71,6 +92,8 @@ function mapSalonRow(row: DbRow): AdminSalon {
     slug: readDbString(row, ['slug']),
     email: readDbString(row, SALON_EMAIL_KEYS),
     phone: readDbString(row, SALON_PHONE_KEYS),
+    address: readDbString(row, SALON_ADDRESS_KEYS),
+    logoUrl: readDbString(row, SALON_LOGO_KEYS),
     plan: normalizeSalonPlan(readDbValue(row, SALON_PLAN_KEYS)),
     status: normalizeSalonStatus(readDbValue(row, SALON_STATUS_KEYS)),
     ownerId: readDbString(row, SALON_OWNER_KEYS),
@@ -128,6 +151,66 @@ export async function setSalonPlan(
   });
 
   return { error: error?.message ?? null };
+}
+
+export async function updateSalonProfile(
+  salonId: string,
+  profile: SalonProfileUpdate
+): Promise<{ error: string | null }> {
+  if (!supabase) {
+    return { error: 'Supabase não está configurado neste ambiente.' };
+  }
+
+  const { error } = await supabase.rpc('admin_update_salon_profile', {
+    p_salon_id: salonId,
+    p_nome: profile.nome.trim(),
+    p_telefone: profile.phone.trim(),
+    p_endereco: profile.address.trim(),
+    p_logo_url: profile.logoUrl.trim(),
+  });
+
+  return { error: error?.message ?? null };
+}
+
+/**
+ * Envia o logo ao bucket público `logos` e devolve a URL pública.
+ * O caminho inclui o id do salão, então cada salão só acumula seus arquivos
+ * no próprio prefixo. O nome é único por timestamp — sem upsert.
+ */
+export async function uploadSalonLogo(
+  salonId: string,
+  file: File
+): Promise<{ url: string | null; error: string | null }> {
+  if (!supabase) {
+    return { url: null, error: 'Supabase não está configurado neste ambiente.' };
+  }
+
+  const allowedTypes: readonly string[] = LOGO_MIME_TYPES;
+  if (!allowedTypes.includes(file.type)) {
+    return { url: null, error: 'Envie uma imagem PNG, JPEG ou WebP.' };
+  }
+
+  if (file.size > MAX_LOGO_BYTES) {
+    return { url: null, error: 'A imagem deve ter no máximo 2 MB.' };
+  }
+
+  const extension =
+    file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+  const path = `${salonId}/logo-${Date.now()}.${extension}`;
+  const bucket = supabase.storage.from(SALON_LOGO_BUCKET);
+
+  const { error } = await bucket.upload(path, file, {
+    cacheControl: '3600',
+    contentType: file.type,
+    upsert: false,
+  });
+
+  if (error) {
+    return { url: null, error: error.message };
+  }
+
+  const { data } = bucket.getPublicUrl(path);
+  return { url: data.publicUrl, error: null };
 }
 
 // Envia o e-mail de recuperação usando o endpoint público do Supabase Auth.
