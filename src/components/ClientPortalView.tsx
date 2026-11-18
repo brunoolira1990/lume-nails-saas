@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
-import { Appointment, Client, ServiceItem } from '../types';
+import React, { useEffect, useState } from 'react';
+import { Appointment, Client, Salon, ServiceItem } from '../types';
 import { STUDIO_INFO } from '../data/initialData';
 import { formatCurrency, formatDateBR, getWhatsAppUrl } from '../utils/formatters';
+import { fetchPublicSalonBranding } from '../lib/supabase';
 import { BrandLogo } from './BrandLogo';
 import {
   Calendar,
@@ -23,6 +24,10 @@ interface ClientPortalViewProps {
   services: ServiceItem[];
   appointments: Appointment[];
   clients: Client[];
+  /** Salão da sessão logada (nome/logo exibidos no topo). */
+  salon?: Pick<Salon, 'id' | 'name' | 'logoUrl'> | null;
+  /** Salão identificado no link público (?salao=...), para visitantes sem login. */
+  salonId?: string;
   initialSelectedServiceId?: string;
   onBookAppointment: (appointment: Appointment, clientData: Partial<Client>) => void;
   onBackToHome: () => void;
@@ -34,6 +39,8 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
   services,
   appointments,
   clients,
+  salon,
+  salonId,
   initialSelectedServiceId,
   onBookAppointment,
   onBackToHome,
@@ -42,6 +49,37 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
 }) => {
   type ClientTab = 'agendar' | 'meus-horarios' | 'fidelidade' | 'cuidados';
   const [activeTab, setActiveTab] = useState<ClientTab>('agendar');
+
+  // Identidade do estúdio no topo. Logada: vem da sessão; link público: RPC.
+  const [branding, setBranding] = useState<{ name: string; logoUrl?: string } | null>(
+    salon ? { name: salon.name, logoUrl: salon.logoUrl } : null
+  );
+
+  useEffect(() => {
+    if (salon) {
+      setBranding({ name: salon.name, logoUrl: salon.logoUrl });
+      return;
+    }
+
+    const id = salonId?.trim();
+    if (!id) {
+      setBranding(null);
+      return;
+    }
+
+    let active = true;
+    void fetchPublicSalonBranding(id).then((result) => {
+      if (!active || !result) return;
+      setBranding({ name: result.name, logoUrl: result.logoUrl });
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [salon?.name, salon?.logoUrl, salonId]);
+
+  const studioName = branding?.name?.trim() || 'Lume Nails';
+  const studioLogoUrl = branding?.logoUrl;
 
   // Booking Form State
   const activeServices = services.filter((s) => s.active);
@@ -145,7 +183,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
       {/* Top Header */}
       <header className="bg-white border-b border-[#E3DFFD] shadow-xs sticky top-0 z-30">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-18 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               onClick={onBackToHome}
               className="p-2 rounded-xl text-stone-500 hover:text-stone-900 hover:bg-stone-100 transition-colors cursor-pointer"
@@ -153,7 +191,15 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <BrandLogo size="md" showText={false} />
+            <BrandLogo size="md" showText={false} src={studioLogoUrl} alt={studioName} />
+            <div className="flex flex-col min-w-0">
+              <span className="text-sm font-bold text-stone-900 truncate max-w-[190px]">
+                {studioName}
+              </span>
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-[#7C3AED]">
+                Portal da Cliente
+              </span>
+            </div>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3">
@@ -183,7 +229,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
           <div>
             <div className="inline-flex items-center gap-1 text-[11px] font-bold text-[#7C3AED] uppercase tracking-wider bg-white px-2.5 py-0.5 rounded-full border border-[#E3DFFD]/60 mb-1">
               <Sparkles className="w-3 h-3 text-[#8B5CF6]" />
-              <span>Espaço da Cliente</span>
+              <span>{studioName} • Espaço da Cliente</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-normal font-['Playfair_Display',serif] text-stone-900">
               Agende seu momento de cuidado
@@ -258,7 +304,7 @@ export const ClientPortalView: React.FC<ClientPortalViewProps> = ({
                     Agendamento Solicitado!
                   </h2>
                   <p className="text-sm text-stone-600">
-                    Obrigado, <strong>{bookingSuccess.clientName}</strong>! Seu horário foi registrado no sistema do Lume Nails.
+                    Obrigado, <strong>{bookingSuccess.clientName}</strong>! Seu horário foi registrado no sistema do {studioName}.
                   </p>
                 </div>
 

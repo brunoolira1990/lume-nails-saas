@@ -286,10 +286,6 @@ CREATE POLICY "Permitir atualizacao da configuracao" ON google_business_config
               <h1 className="text-xl sm:text-2xl font-bold font-['Playfair_Display',serif] text-stone-900">
                 Integração Google Meu Negócio
               </h1>
-              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200 flex items-center gap-1">
-                <Database className="w-3 h-3 text-emerald-600" />
-                {isSupabaseConfigured ? 'Supabase Conectado' : 'Armazenamento Local'}
-              </span>
             </div>
             <p className="text-xs sm:text-sm text-stone-600 max-w-2xl leading-relaxed">
               Configure a <strong>Chave da API do Google</strong> e o <strong>ID da Localização</strong> do estúdio para salvar no banco de dados Supabase e habilitar a sincronização futura das avaliações 5 estrelas.

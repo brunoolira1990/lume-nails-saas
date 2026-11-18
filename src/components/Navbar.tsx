@@ -10,7 +10,6 @@ import {
   Instagram,
   MapPin,
   Globe,
-  Database,
   Share2,
   LogOut,
   ShieldCheck,
@@ -28,7 +27,10 @@ interface NavbarProps {
   onSwitchToPublic: () => void;
   onShareClientLink: () => void;
   onLogout: () => void;
-  isSupabaseConnected?: boolean;
+  /** Nome do salão logado (fallback: Lume Nails). */
+  salonName?: string;
+  /** Logo do salão logado (fallback: logo padrão do Lume Nails). */
+  salonLogoUrl?: string;
   isSuperadmin?: boolean;
   onOpenAdmin?: () => void;
 }
@@ -41,10 +43,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   onSwitchToPublic,
   onShareClientLink,
   onLogout,
-  isSupabaseConnected = false,
+  salonName,
+  salonLogoUrl,
   isSuperadmin = false,
   onOpenAdmin,
 }) => {
+  const studioName = salonName?.trim() || 'Lume Nails';
+
   const tabs = [
     {
       id: 'agenda' as TabType,
@@ -82,14 +87,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Supabase Status indicator */}
-            <div className="flex items-center gap-1 text-[10px] font-semibold text-stone-500">
-              <Database className={`w-3 h-3 ${isSupabaseConnected ? 'text-emerald-600' : 'text-stone-400'}`} />
-              <span>
-                {isSupabaseConnected ? 'Supabase Conectado' : 'Modo Offline / LocalStorage'}
-              </span>
-            </div>
-
             <a
               href="https://instagram.com/lumenails"
               target="_blank"
@@ -106,11 +103,16 @@ export const Navbar: React.FC<NavbarProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-18 sm:h-20">
           {/* Logo / Studio Name */}
-          <div className="flex items-center gap-3">
-            <BrandLogo size="md" showText={false} />
-            <span className="hidden lg:inline-block text-[10px] uppercase tracking-wider font-semibold bg-[#F5F3FF] text-[#7C3AED] px-2 py-0.5 rounded-full border border-[#E3DFFD]/60 ml-1">
-              Painel Lume
-            </span>
+          <div className="flex items-center gap-3 min-w-0">
+            <BrandLogo size="md" showText={false} src={salonLogoUrl} alt={studioName} />
+            <div className="hidden sm:flex flex-col min-w-0">
+              <span className="text-sm font-bold text-stone-900 truncate max-w-[200px]">
+                {studioName}
+              </span>
+              <span className="text-[10px] uppercase tracking-wider font-semibold text-[#7C3AED]">
+                Painel da Manicure
+              </span>
+            </div>
           </div>
 
           {/* Navigation Tabs - Desktop */}

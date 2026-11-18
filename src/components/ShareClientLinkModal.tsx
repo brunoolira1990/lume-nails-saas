@@ -4,21 +4,34 @@ import { Share2, Copy, Check, QrCode, MessageCircle, ExternalLink, X, Sparkles, 
 interface ShareClientLinkModalProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Salão logado: entra no link para o portal abrir com a marca dele. */
+  salonId?: string;
+  studioName?: string;
 }
 
 export const ShareClientLinkModal: React.FC<ShareClientLinkModalProps> = ({
   isOpen,
   onClose,
+  salonId,
+  studioName,
 }) => {
   const [copied, setCopied] = useState(false);
   const [showQr, setShowQr] = useState(false);
 
   if (!isOpen) return null;
 
-  // Construct client portal sharing URL
-  const origin = window.location.origin;
-  const pathname = window.location.pathname;
-  const shareableUrl = `${origin}${pathname}?p=cliente`;
+  const studio = studioName?.trim() || 'Lume Nails';
+
+  // Construct client portal sharing URL (com o salão, quando logada).
+  const shareUrl = new URL(`${window.location.origin}${window.location.pathname}`);
+  shareUrl.searchParams.set('p', 'cliente');
+  const trimmedSalonId = salonId?.trim() ?? '';
+  if (trimmedSalonId) {
+    shareUrl.searchParams.set('salao', trimmedSalonId);
+  } else {
+    shareUrl.searchParams.delete('salao');
+  }
+  const shareableUrl = shareUrl.toString();
 
   const handleCopyLink = async () => {
     try {
@@ -40,7 +53,7 @@ export const ShareClientLinkModal: React.FC<ShareClientLinkModalProps> = ({
 
   const handleWhatsAppShare = () => {
     const text = encodeURIComponent(
-      `Olá! 💅✨ Para agendar seu horário na Lume Nails, acesse nosso link exclusivo:\n\n${shareableUrl}\n\nEscolha o procedimento, o melhor dia e horário!`
+      `Olá! 💅✨ Para agendar seu horário na ${studio}, acesse nosso link exclusivo:\n\n${shareableUrl}\n\nEscolha o procedimento, o melhor dia e horário!`
     );
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
@@ -49,8 +62,8 @@ export const ShareClientLinkModal: React.FC<ShareClientLinkModalProps> = ({
     if (navigator.share) {
       try {
         await navigator.share({
-          title: 'Lume Nails - Agendamento Online',
-          text: 'Agende seu horário de unhas online com a Lume Nails:',
+          title: `${studio} - Agendamento Online`,
+          text: `Agende seu horário de unhas online com a ${studio}:`,
           url: shareableUrl,
         });
       } catch (err) {
@@ -185,7 +198,7 @@ export const ShareClientLinkModal: React.FC<ShareClientLinkModalProps> = ({
             <div>
               <span className="font-bold text-stone-900 block mb-0.5">Dica para Instagram:</span>
               <span className="text-[11px] leading-relaxed text-stone-600">
-                Cole este link no perfil do Instagram <strong>@lumenails</strong> ou no status do WhatsApp para que suas clientes agendem sozinhas sem precisar aguardar resposta.
+                Cole este link no perfil do Instagram ou no status do WhatsApp para que suas clientes agendem sozinhas sem precisar aguardar resposta.
               </span>
             </div>
           </div>

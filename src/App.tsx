@@ -64,12 +64,11 @@ function AppContent() {
   // App View Modes
   const [viewMode, setViewMode] = useState<AppViewMode>('landing');
   const [selectedServiceForBooking, setSelectedServiceForBooking] = useState<string | undefined>(undefined);
+  // Salão identificado no link público (?salao=...), usado no portal sem login.
+  const [publicSalonId, setPublicSalonId] = useState<string>('');
 
   // Manicure Panel Sub-Navigation
   const [currentTab, setCurrentTab] = useState<TabType>('agenda');
-
-  // Supabase connection status
-  const [supabaseConnected, setSupabaseConnected] = useState(false);
 
   // Auth state derived from Supabase session
   const isManicureAuthenticated = Boolean(user);
@@ -137,7 +136,6 @@ function AppContent() {
     async function initSupabase() {
       if (isSupabaseConfigured) {
         const isConnected = await checkSupabaseConnection();
-        setSupabaseConnected(isConnected);
 
         // useSalon's effect already loads the session + salon + sets currentSalonId.
         // Once the salon is known, fetch the data filtered by that salon.
@@ -185,6 +183,8 @@ function AppContent() {
     const urlParams = new URLSearchParams(window.location.search);
     const portal = urlParams.get('p') || urlParams.get('portal');
     const isAdminPath = window.location.pathname.replace(/\/+$/, '') === '/admin';
+    const salao = (urlParams.get('salao') || urlParams.get('salon') || '').trim();
+    setPublicSalonId(salao);
 
     if (isAdminPath || portal === 'admin') {
       setViewMode('admin');
@@ -219,6 +219,13 @@ function AppContent() {
       if (isAdminPath) url.pathname = '/';
       if (mode === 'client_portal') {
         url.searchParams.set('p', 'cliente');
+        const brandId = impersonatedSalon?.id || salon?.id || publicSalonId;
+        if (brandId) {
+          url.searchParams.set('salao', brandId);
+          setPublicSalonId(brandId);
+        } else {
+          url.searchParams.delete('salao');
+        }
       } else if (mode === 'manicure_panel') {
         url.searchParams.set('p', 'manicure');
       } else {
@@ -725,6 +732,14 @@ function AppContent() {
           services={services}
           appointments={appointments}
           clients={clients}
+          salon={
+            impersonatedSalon
+              ? { id: impersonatedSalon.id, name: impersonatedSalon.nome }
+              : salon
+                ? { id: salon.id, name: salon.name, logoUrl: salon.logoUrl }
+                : null
+          }
+          salonId={impersonatedSalon?.id || salon?.id || publicSalonId || undefined}
           initialSelectedServiceId={selectedServiceForBooking}
           onBookAppointment={handleClientSelfBooking}
           onBackToHome={() => changeViewMode('landing')}
@@ -819,7 +834,8 @@ function AppContent() {
             onSwitchToPublic={() => changeViewMode('landing')}
             onShareClientLink={() => setIsShareClientLinkModalOpen(true)}
             onLogout={handleLogout}
-            isSupabaseConnected={supabaseConnected}
+            salonName={impersonatedSalon?.nome || salon?.name}
+            salonLogoUrl={impersonatedSalon ? undefined : salon?.logoUrl}
             isSuperadmin={isSuperadmin}
             onOpenAdmin={handleOpenAdmin}
           />
@@ -941,7 +957,7 @@ function AppContent() {
                   <RotateCcw className="w-3 h-3" />
                   <span>Restaurar dados demo</span>
                 </button>
-                <span>v2.0 • Supabase Multi-tenant</span>
+                <span>v2.0</span>
               </div>
             </div>
           </footer>
@@ -984,6 +1000,8 @@ function AppContent() {
       <ShareClientLinkModal
         isOpen={isShareClientLinkModalOpen}
         onClose={() => setIsShareClientLinkModalOpen(false)}
+        salonId={impersonatedSalon?.id || salon?.id || publicSalonId || undefined}
+        studioName={impersonatedSalon?.nome || salon?.name}
       />
 
       {/* Toast Notification */}

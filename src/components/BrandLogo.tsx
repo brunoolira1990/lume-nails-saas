@@ -1,15 +1,22 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 
 interface BrandLogoProps {
   size?: 'sm' | 'md' | 'lg' | 'hero';
   showText?: boolean;
   className?: string;
+  /** Logo do salão logado. Sem valor (ou se falhar), usa o padrão do Lume Nails. */
+  src?: string;
+  alt?: string;
 }
+
+const DEFAULT_LOGO = '/lume-logo.svg';
 
 export const BrandLogo: React.FC<BrandLogoProps> = ({
   size = 'md',
   showText = false,
   className = '',
+  src,
+  alt = 'Lume Nails',
 }) => {
   const sizeClasses = {
     sm: 'h-10 sm:h-11 w-auto max-w-[140px]',
@@ -18,16 +25,34 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
     hero: 'h-24 sm:h-32 w-auto max-w-[300px]',
   };
 
+  const customLogo = src?.trim() ?? '';
+  const [failedLogo, setFailedLogo] = useState<string | null>(null);
+  const [defaultFailed, setDefaultFailed] = useState(false);
+
+  // Nova URL (troca de salão): volta a tentar carregar a imagem.
+  useEffect(() => {
+    setFailedLogo(null);
+    setDefaultFailed(false);
+  }, [customLogo]);
+
+  const resolvedLogo =
+    customLogo && failedLogo !== customLogo ? customLogo : DEFAULT_LOGO;
+
   return (
     <div className={`inline-flex items-center ${className}`}>
-      {/* Neutral SVG placeholder logo */}
       <img
-        src="/lume-logo.svg"
-        alt="Lume Nails"
+        src={resolvedLogo}
+        alt={alt}
         referrerPolicy="no-referrer"
         className={`${sizeClasses[size]} object-contain select-none shrink-0 transition-transform duration-200`}
-        onError={(e) => {
-          (e.target as HTMLElement).style.display = 'none';
+        style={defaultFailed ? { display: 'none' } : undefined}
+        onError={() => {
+          // Logo do salão quebrada: cai para o padrão do Lume Nails.
+          if (customLogo && failedLogo !== customLogo) {
+            setFailedLogo(customLogo);
+            return;
+          }
+          setDefaultFailed(true);
         }}
       />
 

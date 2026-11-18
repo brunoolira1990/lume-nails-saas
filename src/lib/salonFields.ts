@@ -94,6 +94,7 @@ export function normalizeSalonStatus(value: unknown): SalonStatus {
 
 /** Colunas candidatas, em ordem de prioridade. */
 export const SALON_NAME_KEYS = ['nome', 'name'] as const;
+export const SALON_LOGO_KEYS = ['logo_url'] as const;
 export const SALON_EMAIL_KEYS = ['email_contato', 'email'] as const;
 export const SALON_PHONE_KEYS = ['telefone', 'whatsapp', 'celular', 'phone'] as const;
 export const SALON_PLAN_KEYS = ['plano', 'plano_assinatura', 'plan'] as const;

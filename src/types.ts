@@ -16,6 +16,7 @@ export interface Salon {
   email?: string;
   phone?: string;
   address?: string;
+  logoUrl?: string;
   ownerId?: string;
   plan?: SalonPlan;
   status?: SalonStatus;

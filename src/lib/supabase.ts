@@ -13,6 +13,7 @@ import {
   SALON_ADDRESS_KEYS,
   SALON_CREATED_AT_KEYS,
   SALON_EMAIL_KEYS,
+  SALON_LOGO_KEYS,
   SALON_NAME_KEYS,
   SALON_OWNER_KEYS,
   SALON_PHONE_KEYS,
@@ -139,6 +140,55 @@ export async function fetchUserSalon(userId: string): Promise<Salon | null> {  i
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// Identidade pública do salão (Portal da Cliente)
+// ---------------------------------------------------------------------------
+// A cliente não tem login, então lê apenas nome/logo por uma RPC pública que
+// expõe o mínimo necessário. Se a RPC ainda não existir no projeto, devolve
+// null e o portal segue com a marca padrão do Lume Nails.
+export interface PublicSalonBranding {
+  id: string;
+  name: string;
+  logoUrl?: string;
+}
+
+export async function fetchPublicSalonBranding(
+  salonId: string
+): Promise<PublicSalonBranding | null> {
+  if (!supabase) return null;
+  const id = salonId.trim();
+  if (!id) return null;
+
+  try {
+    const { data, error } = await supabase.rpc('public_salon_branding', {
+      p_salon_id: id,
+    });
+
+    if (error) {
+      console.warn(`Aviso: branding público indisponível (${error.message}).`);
+      return null;
+    }
+
+    const row = (Array.isArray(data) ? data[0] : data) as
+      | { salon_id?: string; name?: string; logo_url?: string }
+      | null;
+
+    if (!row) return null;
+
+    const name = typeof row.name === 'string' ? row.name.trim() : '';
+    const logoUrl = typeof row.logo_url === 'string' ? row.logo_url.trim() : '';
+
+    return {
+      id: row.salon_id ? String(row.salon_id) : id,
+      name: name || 'Lume Nails',
+      logoUrl: logoUrl || undefined,
+    };
+  } catch (error) {
+    console.warn('Aviso: falha ao carregar a identidade pública do salão.', error);
+    return null;
+  }
+}
+
 // Lê o papel do usuário na tabela profiles. Retorna null se a coluna
 // `role` ainda não existir (migração não aplicada) ou em caso de erro.
 export async function fetchUserRole(userId: string): Promise<string | null> {
@@ -169,6 +219,7 @@ function mapSalonFromDb(r: DbRow): Salon {
     email: readDbString(r, SALON_EMAIL_KEYS),
     phone: readDbString(r, SALON_PHONE_KEYS),
     address: readDbString(r, SALON_ADDRESS_KEYS),
+    logoUrl: readDbString(r, SALON_LOGO_KEYS),
     ownerId: readDbString(r, SALON_OWNER_KEYS),
     plan: normalizeSalonPlan(readDbValue(r, SALON_PLAN_KEYS)),
     status: normalizeSalonStatus(readDbValue(r, SALON_STATUS_KEYS)),
